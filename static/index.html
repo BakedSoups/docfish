@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#171915">
+  <title>Angler</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <aside class="docs-sidebar">
+    <div class="side-head"><span>Library</span><button id="collapse-docs" aria-label="Hide documentation">‹</button></div>
+    <label class="rag-switch"><span><b>RAG mode</b><small>Answer from selected docs</small></span><input id="rag-toggle" type="checkbox"><i></i></label>
+    <div class="doc-search"><input id="doc-search" type="search" placeholder="Find a documentation page…"></div>
+    <nav id="doc-list" class="doc-list" aria-label="Documentation"></nav>
+    <div id="page-results" class="page-results"></div>
+  </aside>
+  <button id="show-docs" class="show-docs" aria-label="Show documentation">☰</button>
+  <div class="shell">
+    <header>
+      <a class="brand" href="/" aria-label="Angler home"><span>Angler</span></a>
+      <div class="controls">
+        <span id="status" class="status" aria-label="Model service status"><i></i><span></span></span>
+        <label class="model-select"><span>Model</span><select id="model" aria-label="Choose model"><option>Loading…</option></select></label>
+        <img class="header-avatar" src="/anglerfish_idle.gif" alt="Angler">
+      </div>
+    </header>
+
+    <main id="chat">
+      <section id="welcome" class="welcome">
+        <div class="angler-logo"><img src="/anglerfish_idle.gif" alt="Angler fish"></div>
+        <p class="eyebrow">ANGLER</p>
+        <h1>Angler</h1>
+      </section>
+      <section id="messages" class="messages" aria-live="polite"></section>
+    </main>
+
+    <footer>
+      <form id="composer">
+        <textarea id="input" rows="1" placeholder="Ask Angler a code question…" aria-label="Message" required></textarea>
+        <button id="send" type="submit" aria-label="Send message"><span>↑</span></button>
+      </form>
+      <div class="footer-meta"><button id="clear" type="button">New conversation</button><span>Enter to send · Shift+Enter for a new line</span></div>
+    </footer>
+  </div>
+  <section id="doc-viewer" class="doc-viewer" hidden>
+    <div class="viewer-bar"><span id="viewer-title">Documentation</span><a id="open-doc" target="_blank" rel="noopener">Open tab ↗</a><button id="close-viewer" aria-label="Close documentation">×</button></div>
+    <iframe id="doc-frame" title="Documentation browser"></iframe>
+  </section>
+  <script src="/app.js"></script>
+</body>
+</html>

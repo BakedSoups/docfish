@@ -1,0 +1,2 @@
+beautifulsoup4==4.15.0
+qdrant-client[fastembed]==1.18.0

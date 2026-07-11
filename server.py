@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""Tiny dependency-free web server and Ollama API proxy."""
+
+import json
+import mimetypes
+import os
+import urllib.error
+import urllib.parse
+import urllib.request
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+
+ROOT = Path(__file__).parent / "static"
+OLLAMA = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
+
+
+class Handler(SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=str(ROOT), **kwargs)
+
+    def do_GET(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/api/models":
+            self.proxy("/api/tags")
+        elif parsed.path == "/api/docs":
+            import rag
+            self.json_response({"docs": rag.docs_catalog()})
+        elif parsed.path == "/api/docs/pages":
+            import rag
+            args = urllib.parse.parse_qs(parsed.query)
+            try:
+                pages = rag.list_pages(args.get("doc", [""])[0], args.get("q", [""])[0])
+                self.json_response({"pages": pages})
+            except (KeyError, ValueError) as exc:
+                self.json_response({"error": str(exc)}, 400)
+        elif parsed.path.startswith("/docs/"):
+            self.serve_doc(parsed.path)
+        elif parsed.path == "/anglerfish_idle.gif":
+            asset = Path(__file__).parent / "anglerfish_idle.gif"
+            if not asset.exists():
+                self.send_error(404)
+                return
+            data = asset.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/gif")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "public, max-age=3600")
+            self.end_headers()
+            self.wfile.write(data)
+        else:
+            super().do_GET()
+
+    def do_POST(self):
+        if self.path == "/api/chat":
+            self.proxy("/api/chat", self.rfile.read(int(self.headers.get("Content-Length", 0))))
+        elif self.path == "/api/docs/index":
+            import rag
+            try:
+                body = self.read_json()
+                rag.start_index(body.get("doc", ""))
+                self.json_response({"ok": True}, 202)
+            except KeyError as exc:
+                self.json_response({"error": f"Unknown documentation set: {exc}"}, 400)
+        elif self.path == "/api/rag/search":
+            import rag
+            try:
+                body = self.read_json()
+                results = rag.search(body.get("doc", ""), body.get("query", ""))
+                self.json_response({"results": results})
+            except (KeyError, RuntimeError, ValueError) as exc:
+                self.json_response({"error": str(exc)}, 400)
+        else:
+            self.send_error(404)
+
+    def read_json(self):
+        return json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+
+    def json_response(self, value, status=200):
+        payload = json.dumps(value).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def serve_doc(self, url_path):
+        import rag
+        parts = url_path.split("/", 3)
+        if len(parts) < 3:
+            self.send_error(404)
+            return
+        key = urllib.parse.unquote(parts[2])
+        relative = urllib.parse.unquote(parts[3]) if len(parts) > 3 else ""
+        try:
+            path = rag.safe_doc_path(key, relative)
+            if path.is_dir():
+                path = path / "index.html"
+            data = path.read_bytes()
+        except (KeyError, ValueError, OSError):
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def proxy(self, path, body=None):
+        try:
+            req = urllib.request.Request(
+                OLLAMA + path,
+                data=body,
+                headers={"Content-Type": "application/json"} if body is not None else {},
+                method="POST" if body is not None else "GET",
+            )
+            with urllib.request.urlopen(req, timeout=300) as response:
+                self.send_response(response.status)
+                self.send_header("Content-Type", response.headers.get("Content-Type", "application/json"))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                while chunk := response.read(8192):
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+        except (urllib.error.URLError, TimeoutError) as exc:
+            message = getattr(exc, "reason", exc)
+            payload = json.dumps({"error": f"Could not reach Ollama at {OLLAMA}: {message}"}).encode()
+            self.send_response(502)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+    def log_message(self, fmt, *args):
+        print(f"{self.address_string()} - {fmt % args}")
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "8080"))
+    print(f"Ollama UI: http://127.0.0.1:{port}")
+    print(f"Ollama API: {OLLAMA}")
+    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
