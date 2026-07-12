@@ -20,7 +20,16 @@ OLLAMA_HOST=http://192.168.1.10:11434 venv/bin/python server.py
 
 ## Documentation RAG
 
-The left sidebar browses the installed Godot, Pandas, Go, JavaScript/MDN, NumPy, React, Python, and Git manuals. Click **Index** beside a library once, then enable **RAG mode** to ground answers in that selected documentation. Indexing runs in the background and stores local vectors under `Documentation/qdrant`.
+The Library browses the installed Godot, Pandas, Go, JavaScript/MDN, NumPy, React, Python, Git, and PDF manuals. Click **Index** beside a library once, then enable **RAG mode** to ground answers in that selected documentation. Qdrant runs locally in Docker and stores its data under `Documentation/qdrant-server`.
+
+```bash
+docker start angler-qdrant
+venv/bin/python server.py
+```
+
+The sidebar’s **Google ↗** button runs a normal `site:stackoverflow.com` Google search in a new tab. It does not scrape Google or require an API key.
+
+PDF files placed in `Documentation/PDF_docss` appear automatically in the library. They can be read in the document pane, searched by page text, and indexed for page-numbered RAG citations.
 
 To recreate the Python environment:
 

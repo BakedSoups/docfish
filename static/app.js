@@ -9,6 +9,7 @@ const messagesEl = document.querySelector('#messages');
 const docList = document.querySelector('#doc-list');
 const pageResults = document.querySelector('#page-results');
 const ragToggle = document.querySelector('#rag-toggle');
+const ragDoc = document.querySelector('#rag-doc');
 let messages = [];
 let controller = null;
 let docs = [];
@@ -55,10 +56,15 @@ async function chat(text) {
       output.textContent = 'Searching documentation…';
       const lookup = await fetch('/api/rag/search', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({doc:selectedDoc, query:text})});
       const found = await lookup.json();
-      if (!lookup.ok) throw new Error(found.error || 'Documentation search failed');
-      sources = found.results || [];
-      const context = sources.map((s,i) => `[${i+1}] PAGE: ${s.path}\nTITLE: ${s.title}\n${s.text}`).join('\n\n');
-      systemPrompt += `\n\nUse only the documentation excerpts below for factual claims about the selected library. Cite claims inline as [1], [2], etc. Clearly say when the excerpts do not contain the answer. End with a short Sources list containing the cited page paths.\n\n${context}`;
+      if (lookup.ok) {
+        sources = found.results || [];
+        const context = sources.map((s,i) => `[${i+1}] PAGE: ${s.page || s.path}\nPATH: ${s.path}\nTITLE: ${s.title}\n${s.text}`).join('\n\n');
+        systemPrompt += `\n\nWork from the evidence excerpts below. First identify which exact passage answers the question, then formulate the concise answer from that evidence. Use only these excerpts for factual claims about the selected library. Cite claims inline as [1], [2], etc. Never invent a page reference. Clearly say when the evidence does not contain the answer. End with a short Sources list containing the cited page paths. Do not reveal private chain-of-thought; provide the answer and supporting citations only.\n\n${context}`;
+      } else {
+        const sourceName=docs.find(doc=>doc.id===selectedDoc)?.name || 'Selected source';
+        systemPrompt += `\n\nThe user selected ${sourceName}, but its local evidence index is still being built. Answer normally without claiming to cite that source.`;
+        output.dataset.notice=`${sourceName} is still indexing; answered without RAG.`;
+      }
       output.textContent = '';
     }
     const response = await fetch('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, signal:controller.signal,
@@ -71,7 +77,8 @@ async function chat(text) {
       for (const line of lines) if (line.trim()) { const part = JSON.parse(line); answer += part.message?.content || ''; output.textContent = answer; window.scrollTo(0, document.body.scrollHeight); }
     }
     messages.push({ role:'assistant', content:answer });
-    if (sources.length) addSourceLinks(output, sources);
+    if (sources.length) addSourceLinks(output, sources, text);
+    if (output.dataset.notice) { const notice=document.createElement('small'); notice.className='rag-notice'; notice.textContent=output.dataset.notice; output.append(notice); }
   } catch (error) { output.textContent = error.name === 'AbortError' ? 'Generation stopped.' : `Error: ${error.message}`; }
   finally { output.classList.remove('thinking'); controller = null; send.disabled = false; input.focus(); }
 }
@@ -82,17 +89,21 @@ input.addEventListener('input', () => { input.style.height='auto'; input.style.h
 modelSelect.addEventListener('change', () => localStorage.setItem('ollama-model', modelSelect.value));
 document.querySelector('#clear').addEventListener('click', () => { if (controller) controller.abort(); messages=[]; messagesEl.innerHTML=''; messagesEl.classList.remove('active'); welcome.hidden=false; input.focus(); });
 
-function addSourceLinks(output, sources) {
+function addSourceLinks(output, sources, query) {
   const links = document.createElement('div'); links.className = 'source-links';
   sources.forEach((source, index) => {
     const a = document.createElement('button'); a.type='button'; a.textContent=`[${index+1}] ${source.title || source.path}`;
-    a.addEventListener('click', () => openDocument(selectedDoc, source.path, source.title)); links.append(a);
+    a.addEventListener('click', () => openDocument(selectedDoc, source.path, source.page ? `Page ${source.page}` : source.title, 'side')); links.append(a);
   });
   output.append(links);
+  const evidence=document.createElement('details'); evidence.className='evidence'; evidence.innerHTML='<summary>View supporting passages</summary>';
+  sources.forEach((source,index)=>{ const passage=document.createElement('div'); passage.className='evidence-passage'; const label=document.createElement('b'); label.textContent=`[${index+1}] ${source.page?`Page ${source.page}`:source.title}`; passage.append(label); passage.append(highlightText(source.text || '',query)); evidence.append(passage); });
+  output.append(evidence);
 }
+function highlightText(text,query) { const wrap=document.createElement('p'); const terms=[...new Set(query.match(/[a-z0-9_]{3,}/gi)||[])].sort((a,b)=>b.length-a.length); if (!terms.length) { wrap.textContent=text; return wrap; } const pattern=new RegExp(`(${terms.map(t=>t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|')})`,'gi'); text.slice(0,2200).split(pattern).forEach(part=>{ if(terms.some(t=>t.toLowerCase()===part.toLowerCase())) { const mark=document.createElement('mark'); mark.textContent=part; wrap.append(mark); } else wrap.append(document.createTextNode(part)); }); return wrap; }
 
 async function loadDocs() {
-  try { const response=await fetch('/api/docs'); const data=await response.json(); docs=data.docs || []; if (!selectedDoc && docs.length) selectedDoc=docs[0].id; renderDocs(); }
+  try { const response=await fetch('/api/docs'); const data=await response.json(); docs=data.docs || []; if (!selectedDoc && docs.length) selectedDoc=docs[0].id; renderRagSelect(); renderDocs(); }
   catch { docList.innerHTML='<p class="doc-error">Documentation unavailable</p>'; }
 }
 
@@ -100,26 +111,41 @@ function renderDocs() {
   docList.innerHTML='';
   for (const doc of docs) {
     const item=document.createElement('div'); item.className=`doc-item ${doc.id===selectedDoc?'selected':''}`;
-    const state=doc.state==='indexing' ? `Indexing ${doc.progress}%` : doc.indexed ? 'RAG ready' : 'Not indexed';
-    item.innerHTML=`<span>${doc.name}</span><small class="${doc.indexed?'ready':''}">${state}</small>${doc.indexed?'':`<button class="index-doc" type="button">Index</button>`}`;
-    item.addEventListener('click', e => { if (e.target.classList.contains('index-doc')) return; selectedDoc=doc.id; localStorage.setItem('angler-doc',selectedDoc); renderDocs(); searchPages(); if (doc.home) openDocument(doc.id,doc.home,doc.name); });
+    const state=doc.state==='indexing' ? `Indexing ${doc.progress}%` : doc.state==='queued' ? 'Queued' : doc.indexed ? 'RAG ready' : 'Not indexed';
+    item.innerHTML=`<div class="doc-cover"><img src="/api/docs/cover?doc=${encodeURIComponent(doc.id)}" alt="" onerror="this.remove()"><strong>${doc.name}</strong><em>${doc.type==='pdf'?'PDF BOOK':'OFFLINE DOCUMENTATION'}</em></div><span>${doc.name}</span><small class="${doc.indexed?'ready':''}">${state}</small>${doc.indexed?'':`<button class="index-doc" type="button">Index</button>`}`;
+    item.addEventListener('click', e => { if (e.target.classList.contains('index-doc')) return; selectDoc(doc.id); document.querySelector('#library-modal').hidden=true; if (doc.type==='pdf' || doc.home) openDocument(doc.id,doc.home,doc.name,'reader'); });
     item.querySelector('.index-doc')?.addEventListener('click', async () => { await fetch('/api/docs/index',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({doc:doc.id})}); pollDocs(); });
     docList.append(item);
   }
 }
 
+function renderRagSelect() {
+  const current=selectedDoc; ragDoc.innerHTML='';
+  for (const doc of docs) ragDoc.add(new Option(`${doc.indexed?'●':'○'} ${doc.name}`,doc.id));
+  if (docs.some(doc=>doc.id===current)) ragDoc.value=current;
+}
+function selectDoc(id) { selectedDoc=id; localStorage.setItem('angler-doc',id); ragDoc.value=id; renderDocs(); searchPages(); }
+
 let docTimer;
 async function pollDocs() { clearTimeout(docTimer); await loadDocs(); if (docs.some(d=>d.state==='indexing')) docTimer=setTimeout(pollDocs,1500); }
 async function searchPages() {
   const query=document.querySelector('#doc-search').value.trim(); if (!selectedDoc) return;
+  if (!query) { pageResults.innerHTML=''; return; }
   const response=await fetch(`/api/docs/pages?doc=${encodeURIComponent(selectedDoc)}&q=${encodeURIComponent(query)}`); const data=await response.json();
   pageResults.innerHTML='';
-  (data.pages || []).slice(0,40).forEach(page => { const b=document.createElement('button'); b.className='page-result'; b.textContent=page.path; b.onclick=()=>openDocument(selectedDoc,page.path,page.title); pageResults.append(b); });
+  (data.pages || []).slice(0,40).forEach(page => { const b=document.createElement('button'); b.className='page-result'; b.textContent=page.snippet ? `${page.title} — ${page.snippet}` : page.path; b.onclick=()=>openDocument(selectedDoc,page.path,page.title,'reader'); pageResults.append(b); });
 }
-function openDocument(doc,path,title) { const url=`/docs/${encodeURIComponent(doc)}/${path.split('/').map(encodeURIComponent).join('/')}`; document.querySelector('#doc-frame').src=url; document.querySelector('#viewer-title').textContent=title || path; document.querySelector('#open-doc').href=url; document.querySelector('#doc-viewer').hidden=false; }
+function openDocument(doc,path,title,mode='side') { const isPage=path.startsWith('#page='); const [base,fragment='']=isPage?['',path.slice(1)]:path.split('#',2); const safePath=base.split('/').map(encodeURIComponent).join('/'); const hash=fragment?`#${fragment}`:''; const url=`/docs/${encodeURIComponent(doc)}/${safePath}${hash}`; document.body.classList.toggle('reader-open',mode==='reader'); document.body.classList.toggle('source-open',mode==='side'); document.querySelector('#doc-frame').src=url; document.querySelector('#viewer-title').textContent=title || path; document.querySelector('#open-doc').href=url; document.querySelector('#doc-viewer').hidden=false; }
 document.querySelector('#doc-search').addEventListener('input',()=>{ clearTimeout(window.docSearchTimer); window.docSearchTimer=setTimeout(searchPages,250); });
-document.querySelector('#close-viewer').addEventListener('click',()=>document.querySelector('#doc-viewer').hidden=true);
-document.querySelector('#collapse-docs').addEventListener('click',()=>{ document.body.classList.add('docs-collapsed'); document.body.classList.remove('docs-mobile-open'); });
+document.querySelector('#google-stack').addEventListener('click',()=>{ const query=document.querySelector('#doc-search').value.trim(); if (query) window.open(`https://www.google.com/search?q=${encodeURIComponent(`site:stackoverflow.com ${query}`)}`,'_blank','noopener'); });
+document.querySelector('#doc-search').addEventListener('keydown',e=>{ if (e.key==='Enter' && e.shiftKey) { e.preventDefault(); document.querySelector('#google-stack').click(); } });
+document.querySelector('#close-viewer').addEventListener('click',()=>{ document.querySelector('#doc-viewer').hidden=true; document.body.classList.remove('reader-open','source-open'); });
+document.querySelector('#open-library').addEventListener('click',()=>{ document.querySelector('#library-modal').hidden=false; document.querySelector('#doc-search').focus(); });
+document.querySelector('#close-library').addEventListener('click',()=>document.querySelector('#library-modal').hidden=true);
+document.querySelector('#index-all').addEventListener('click',async()=>{ const button=document.querySelector('#index-all'); button.disabled=true; button.textContent='Queued'; await fetch('/api/docs/index-all',{method:'POST'}); pollDocs(); });
+document.querySelector('#library-modal').addEventListener('click',e=>{ if (e.target.id==='library-modal') e.currentTarget.hidden=true; });
+ragDoc.addEventListener('change',()=>selectDoc(ragDoc.value));
+document.querySelector('#collapse-docs').addEventListener('click',()=>{ const library=document.querySelector('#library-modal'); if (!library.hidden) { library.hidden=true; return; } document.body.classList.add('docs-collapsed'); document.body.classList.remove('docs-mobile-open'); });
 document.querySelector('#show-docs').addEventListener('click',()=>{ document.body.classList.remove('docs-collapsed'); document.body.classList.add('docs-mobile-open'); });
 ragToggle.checked=localStorage.getItem('angler-rag')==='true'; ragToggle.addEventListener('change',()=>localStorage.setItem('angler-rag',ragToggle.checked));
 loadModels();

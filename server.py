@@ -4,6 +4,7 @@
 import json
 import mimetypes
 import os
+import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -34,6 +35,22 @@ class Handler(SimpleHTTPRequestHandler):
                 self.json_response({"pages": pages})
             except (KeyError, ValueError) as exc:
                 self.json_response({"error": str(exc)}, 400)
+        elif parsed.path == "/api/docs/cover":
+            import rag
+            args = urllib.parse.parse_qs(parsed.query)
+            try:
+                path = rag.cover_path(args.get("doc", [""])[0])
+                if path is None:
+                    self.send_error(404)
+                    return
+                data = path.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            except (KeyError, OSError, subprocess.SubprocessError):
+                self.send_error(404)
         elif parsed.path.startswith("/docs/"):
             self.serve_doc(parsed.path)
         elif parsed.path == "/anglerfish_idle.gif":
@@ -51,6 +68,11 @@ class Handler(SimpleHTTPRequestHandler):
         else:
             super().do_GET()
 
+    def end_headers(self):
+        if self.path.startswith(("/app.js", "/styles.css", "/")):
+            self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
     def do_POST(self):
         if self.path == "/api/chat":
             self.proxy("/api/chat", self.rfile.read(int(self.headers.get("Content-Length", 0))))
@@ -62,6 +84,10 @@ class Handler(SimpleHTTPRequestHandler):
                 self.json_response({"ok": True}, 202)
             except KeyError as exc:
                 self.json_response({"error": f"Unknown documentation set: {exc}"}, 400)
+        elif self.path == "/api/docs/index-all":
+            import rag
+            queued = rag.start_all()
+            self.json_response({"ok": True, "queued": queued}, 202)
         elif self.path == "/api/rag/search":
             import rag
             try:
