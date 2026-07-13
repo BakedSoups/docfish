@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#171915">
   <title>Angler</title>
-  <link rel="stylesheet" href="/styles.css?v=10">
+  <link rel="stylesheet" href="/styles.css?v=13">
 </head>
 <body>
   <aside class="docs-sidebar">
-    <div class="side-head"><span>A</span><button id="collapse-docs" aria-label="Hide sidebar">‹</button></div>
+    <div class="side-head"><img src="/anglerfish_idle.gif" alt="Angler"><button id="collapse-docs" aria-label="Hide sidebar">‹</button></div>
     <button id="open-library" class="rail-button" type="button"><span class="rail-icon">▥</span><b>Library</b></button>
     <label class="rag-switch"><span><b>RAG mode</b><small>Answer from selected docs</small></span><input id="rag-toggle" type="checkbox"><i></i></label>
     <label class="rag-source"><span>Source</span><select id="rag-doc" aria-label="RAG documentation source"><option value="">Choose…</option></select></label>
@@ -39,13 +39,18 @@
         <textarea id="input" rows="1" placeholder="Ask Angler a code question…" aria-label="Message" required></textarea>
         <button id="send" type="submit" aria-label="Send message"><span>↑</span></button>
       </form>
-      <div class="footer-meta"><button id="clear" type="button">New conversation</button><span>Enter to send · Shift+Enter for a new line</span></div>
+      <div class="footer-meta"><button id="clear" type="button">Reset chat · Ctrl+R</button><span>Enter to send · Shift+Enter for a new line</span></div>
     </footer>
   </div>
   <section id="library-modal" class="library-modal" hidden>
     <div class="library-panel">
-      <header class="library-head"><div><p>ANGLER LIBRARY</p><h2>Your documentation</h2></div><div class="library-actions"><button id="index-all" class="index-all" type="button">Index all for RAG</button><button id="close-library" aria-label="Close library">×</button></div></header>
+      <header class="library-head"><div><p>ANGLER LIBRARY</p><h2>Your documentation</h2></div><div class="library-actions"><button id="close-library" aria-label="Close library">×</button></div></header>
       <div class="library-search"><input id="doc-search" type="search" placeholder="Search the selected book or documentation…"><button id="google-stack" type="button" title="Search Stack Overflow with Google">Search Stack Overflow ↗</button></div>
+      <div class="aquarium" aria-hidden="true">
+        <div class="water-light"></div><div class="seaweed weed-one"></div><div class="seaweed weed-two"></div><div class="seaweed weed-three"></div>
+        <span class="bubble b1"></span><span class="bubble b2"></span><span class="bubble b3"></span><span class="bubble b4"></span>
+        <span class="swimmer fish-one">◆</span><span class="swimmer fish-two">◀</span><span class="swimmer fish-three">◆</span><span class="sucker">◖</span>
+      </div>
       <div class="library-body">
         <nav id="doc-list" class="doc-list" aria-label="Documentation"></nav>
         <div id="page-results" class="page-results"></div>
@@ -56,6 +61,8 @@
     <div class="viewer-bar"><span id="viewer-title">Documentation</span><a id="open-doc" target="_blank" rel="noopener">Open tab ↗</a><button id="close-viewer" aria-label="Close documentation">×</button></div>
     <iframe id="doc-frame" title="Documentation browser"></iframe>
   </section>
-  <script src="/app.js?v=10"></script>
+  <script src="/purify.min.js"></script>
+  <script src="/marked.umd.js"></script>
+  <script src="/app.js?v=11"></script>
 </body>
 </html>

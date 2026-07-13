@@ -23,9 +23,10 @@ OLLAMA_HOST=http://192.168.1.10:11434 venv/bin/python server.py
 The Library browses the installed Godot, Pandas, Go, JavaScript/MDN, NumPy, React, Python, Git, and PDF manuals. Click **Index** beside a library once, then enable **RAG mode** to ground answers in that selected documentation. Qdrant runs locally in Docker and stores its data under `Documentation/qdrant-server`.
 
 ```bash
-docker start angler-qdrant
-venv/bin/python server.py
+docker compose up --build -d
 ```
+
+This starts Angler at <http://127.0.0.1:8080>, Qdrant on localhost port 6333, connects to the host Ollama service through Linux host networking, mounts the local documentation library, and automatically resumes unfinished indexes.
 
 The sidebar’s **Google ↗** button runs a normal `site:stackoverflow.com` Google search in a new tab. It does not scrape Google or require an API key.
 

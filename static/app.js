@@ -15,6 +15,8 @@ let controller = null;
 let docs = [];
 let selectedDoc = localStorage.getItem('angler-doc') || '';
 const anglerPrompt = 'You are Angler, a concise coding and documentation assistant. Answer code questions accurately and ideally in one shot. Lead with the solution or code. Keep explanations brief and practical unless the user asks for more detail. Do not add unnecessary background, follow-up questions, or filler.';
+marked.use({gfm:true,breaks:true});
+function renderMarkdown(target,text) { target.innerHTML=DOMPurify.sanitize(marked.parse(text)); }
 
 async function loadModels() {
   try {
@@ -74,7 +76,7 @@ async function chat(text) {
     while (true) {
       const { value, done } = await reader.read(); if (done) break;
       buffer += decoder.decode(value, {stream:true}); const lines = buffer.split('\n'); buffer = lines.pop();
-      for (const line of lines) if (line.trim()) { const part = JSON.parse(line); answer += part.message?.content || ''; output.textContent = answer; window.scrollTo(0, document.body.scrollHeight); }
+      for (const line of lines) if (line.trim()) { const part = JSON.parse(line); answer += part.message?.content || ''; renderMarkdown(output,answer); window.scrollTo(0, document.body.scrollHeight); }
     }
     messages.push({ role:'assistant', content:answer });
     if (sources.length) addSourceLinks(output, sources, text);
@@ -87,7 +89,9 @@ form.addEventListener('submit', e => { e.preventDefault(); const text=input.valu
 input.addEventListener('keydown', e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } });
 input.addEventListener('input', () => { input.style.height='auto'; input.style.height=Math.min(input.scrollHeight,160)+'px'; });
 modelSelect.addEventListener('change', () => localStorage.setItem('ollama-model', modelSelect.value));
-document.querySelector('#clear').addEventListener('click', () => { if (controller) controller.abort(); messages=[]; messagesEl.innerHTML=''; messagesEl.classList.remove('active'); welcome.hidden=false; input.focus(); });
+function resetChat() { if (controller) controller.abort(); messages=[]; messagesEl.innerHTML=''; messagesEl.classList.remove('active'); welcome.hidden=false; input.value=''; input.focus(); }
+document.querySelector('#clear').addEventListener('click',resetChat);
+document.addEventListener('keydown',e=>{ if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase()==='r') { e.preventDefault(); resetChat(); } });
 
 function addSourceLinks(output, sources, query) {
   const links = document.createElement('div'); links.className = 'source-links';
@@ -112,9 +116,8 @@ function renderDocs() {
   for (const doc of docs) {
     const item=document.createElement('div'); item.className=`doc-item ${doc.id===selectedDoc?'selected':''}`;
     const state=doc.state==='indexing' ? `Indexing ${doc.progress}%` : doc.state==='queued' ? 'Queued' : doc.indexed ? 'RAG ready' : 'Not indexed';
-    item.innerHTML=`<div class="doc-cover"><img src="/api/docs/cover?doc=${encodeURIComponent(doc.id)}" alt="" onerror="this.remove()"><strong>${doc.name}</strong><em>${doc.type==='pdf'?'PDF BOOK':'OFFLINE DOCUMENTATION'}</em></div><span>${doc.name}</span><small class="${doc.indexed?'ready':''}">${state}</small>${doc.indexed?'':`<button class="index-doc" type="button">Index</button>`}`;
-    item.addEventListener('click', e => { if (e.target.classList.contains('index-doc')) return; selectDoc(doc.id); document.querySelector('#library-modal').hidden=true; if (doc.type==='pdf' || doc.home) openDocument(doc.id,doc.home,doc.name,'reader'); });
-    item.querySelector('.index-doc')?.addEventListener('click', async () => { await fetch('/api/docs/index',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({doc:doc.id})}); pollDocs(); });
+    item.innerHTML=`<div class="doc-cover"><img src="/api/docs/cover?doc=${encodeURIComponent(doc.id)}" alt="${doc.name} cover" onload="this.parentElement.classList.add('has-art')" onerror="this.remove()"><strong>${doc.name}</strong><em>${doc.type==='pdf'?'PDF BOOK':'OFFLINE DOCUMENTATION'}</em></div><span>${doc.name}</span><small class="${doc.indexed?'ready':''}">${state}</small>`;
+    item.addEventListener('click', () => { selectDoc(doc.id); document.querySelector('#library-modal').hidden=true; if (doc.type==='pdf' || doc.home) openDocument(doc.id,doc.home,doc.name,'reader'); });
     docList.append(item);
   }
 }
@@ -142,7 +145,6 @@ document.querySelector('#doc-search').addEventListener('keydown',e=>{ if (e.key=
 document.querySelector('#close-viewer').addEventListener('click',()=>{ document.querySelector('#doc-viewer').hidden=true; document.body.classList.remove('reader-open','source-open'); });
 document.querySelector('#open-library').addEventListener('click',()=>{ document.querySelector('#library-modal').hidden=false; document.querySelector('#doc-search').focus(); });
 document.querySelector('#close-library').addEventListener('click',()=>document.querySelector('#library-modal').hidden=true);
-document.querySelector('#index-all').addEventListener('click',async()=>{ const button=document.querySelector('#index-all'); button.disabled=true; button.textContent='Queued'; await fetch('/api/docs/index-all',{method:'POST'}); pollDocs(); });
 document.querySelector('#library-modal').addEventListener('click',e=>{ if (e.target.id==='library-modal') e.currentTarget.hidden=true; });
 ragDoc.addEventListener('change',()=>selectDoc(ragDoc.value));
 document.querySelector('#collapse-docs').addEventListener('click',()=>{ const library=document.querySelector('#library-modal'); if (!library.hidden) { library.hidden=true; return; } document.body.classList.add('docs-collapsed'); document.body.classList.remove('docs-mobile-open'); });

@@ -1,0 +1,6 @@
+Documentation
+venv
+__pycache__
+.git
+*.zip
+*.7z

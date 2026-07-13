@@ -164,6 +164,10 @@ class Handler(SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8080"))
+    host = os.environ.get("HOST", "127.0.0.1")
     print(f"Ollama UI: http://127.0.0.1:{port}")
     print(f"Ollama API: {OLLAMA}")
-    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    if os.environ.get("AUTO_INDEX", "0").lower() in ("1", "true", "yes"):
+        import rag
+        print(f"Queued documentation indexes: {', '.join(rag.start_all()) or 'all complete'}")
+    ThreadingHTTPServer((host, port), Handler).serve_forever()
