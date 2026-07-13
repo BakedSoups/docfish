@@ -5,16 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#171915">
   <title>Angler</title>
-  <link rel="stylesheet" href="/styles.css?v=13">
+  <link rel="stylesheet" href="/styles.css?v=16">
 </head>
 <body>
   <aside class="docs-sidebar">
-    <div class="side-head"><img src="/anglerfish_idle.gif" alt="Angler"><button id="collapse-docs" aria-label="Hide sidebar">‹</button></div>
+    <div class="side-head"><img src="/anglerfish_idle.gif" alt="Angler"></div>
     <button id="open-library" class="rail-button" type="button"><span class="rail-icon">▥</span><b>Library</b></button>
     <label class="rag-switch"><span><b>RAG mode</b><small>Answer from selected docs</small></span><input id="rag-toggle" type="checkbox"><i></i></label>
     <label class="rag-source"><span>Source</span><select id="rag-doc" aria-label="RAG documentation source"><option value="">Choose…</option></select></label>
   </aside>
-  <button id="show-docs" class="show-docs" aria-label="Show documentation">☰</button>
   <div class="shell">
     <header>
       <a class="brand" href="/" aria-label="Angler home"><span>Angler</span></a>
@@ -49,7 +48,7 @@
       <div class="aquarium" aria-hidden="true">
         <div class="water-light"></div><div class="seaweed weed-one"></div><div class="seaweed weed-two"></div><div class="seaweed weed-three"></div>
         <span class="bubble b1"></span><span class="bubble b2"></span><span class="bubble b3"></span><span class="bubble b4"></span>
-        <span class="swimmer fish-one">◆</span><span class="swimmer fish-two">◀</span><span class="swimmer fish-three">◆</span><span class="sucker">◖</span>
+        <span class="swimmer fish-one"></span><span class="swimmer fish-two"></span><span class="swimmer fish-three"></span><span class="sucker"></span>
       </div>
       <div class="library-body">
         <nav id="doc-list" class="doc-list" aria-label="Documentation"></nav>
@@ -63,6 +62,6 @@
   </section>
   <script src="/purify.min.js"></script>
   <script src="/marked.umd.js"></script>
-  <script src="/app.js?v=11"></script>
+  <script src="/app.js?v=16"></script>
 </body>
 </html>

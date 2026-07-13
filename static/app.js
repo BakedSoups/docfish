@@ -58,15 +58,16 @@ async function chat(text) {
       output.textContent = 'Searching documentation…';
       const lookup = await fetch('/api/rag/search', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({doc:selectedDoc, query:text})});
       const found = await lookup.json();
-      if (lookup.ok) {
-        sources = found.results || [];
-        const context = sources.map((s,i) => `[${i+1}] PAGE: ${s.page || s.path}\nPATH: ${s.path}\nTITLE: ${s.title}\n${s.text}`).join('\n\n');
-        systemPrompt += `\n\nWork from the evidence excerpts below. First identify which exact passage answers the question, then formulate the concise answer from that evidence. Use only these excerpts for factual claims about the selected library. Cite claims inline as [1], [2], etc. Never invent a page reference. Clearly say when the evidence does not contain the answer. End with a short Sources list containing the cited page paths. Do not reveal private chain-of-thought; provide the answer and supporting citations only.\n\n${context}`;
-      } else {
-        const sourceName=docs.find(doc=>doc.id===selectedDoc)?.name || 'Selected source';
-        systemPrompt += `\n\nThe user selected ${sourceName}, but its local evidence index is still being built. Answer normally without claiming to cite that source.`;
-        output.dataset.notice=`${sourceName} is still indexing; answered without RAG.`;
+      if (!lookup.ok) {
+        const source=docs.find(doc=>doc.id===selectedDoc); const sourceName=source?.name || 'Selected source';
+        const progress=source?.state==='indexing' && source.progress ? ` (${source.progress}%)` : '';
+        output.textContent=`${sourceName} is still indexing${progress}. RAG requires source evidence, so no unsourced answer was generated.`;
+        messages.pop();
+        return;
       }
+      sources = found.results || [];
+      const context = sources.map((s,i) => `[${i+1}] PAGE: ${s.page || s.path}\nPATH: ${s.path}\nTITLE: ${s.title}\n${s.text}`).join('\n\n');
+      systemPrompt += `\n\nWork from the evidence excerpts below. First identify which exact passage answers the question, then formulate the concise answer from that evidence. Use only these excerpts for factual claims about the selected library. Cite every factual claim inline as [1], [2], etc. For PDFs, state the physical page number. For HTML documentation, state the page path and section anchor. Never invent a page reference. Clearly say when the evidence does not contain the answer. End with a short Sources list containing every cited page or path. Do not reveal private chain-of-thought; provide the answer and supporting citations only.\n\n${context}`;
       output.textContent = '';
     }
     const response = await fetch('/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, signal:controller.signal,
@@ -80,7 +81,6 @@ async function chat(text) {
     }
     messages.push({ role:'assistant', content:answer });
     if (sources.length) addSourceLinks(output, sources, text);
-    if (output.dataset.notice) { const notice=document.createElement('small'); notice.className='rag-notice'; notice.textContent=output.dataset.notice; output.append(notice); }
   } catch (error) { output.textContent = error.name === 'AbortError' ? 'Generation stopped.' : `Error: ${error.message}`; }
   finally { output.classList.remove('thinking'); controller = null; send.disabled = false; input.focus(); }
 }
@@ -147,8 +147,6 @@ document.querySelector('#open-library').addEventListener('click',()=>{ document.
 document.querySelector('#close-library').addEventListener('click',()=>document.querySelector('#library-modal').hidden=true);
 document.querySelector('#library-modal').addEventListener('click',e=>{ if (e.target.id==='library-modal') e.currentTarget.hidden=true; });
 ragDoc.addEventListener('change',()=>selectDoc(ragDoc.value));
-document.querySelector('#collapse-docs').addEventListener('click',()=>{ const library=document.querySelector('#library-modal'); if (!library.hidden) { library.hidden=true; return; } document.body.classList.add('docs-collapsed'); document.body.classList.remove('docs-mobile-open'); });
-document.querySelector('#show-docs').addEventListener('click',()=>{ document.body.classList.remove('docs-collapsed'); document.body.classList.add('docs-mobile-open'); });
 ragToggle.checked=localStorage.getItem('angler-rag')==='true'; ragToggle.addEventListener('change',()=>localStorage.setItem('angler-rag',ragToggle.checked));
 loadModels();
 loadDocs();
