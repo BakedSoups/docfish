@@ -24,5 +24,18 @@ def health(database, vector_store, ollama_url: str, embedding_model: str) -> dic
     except Exception as exc:
         checks["vectors"] = {"ok": False, "error": str(exc)}
     cache = Path.home() / ".cache" / "huggingface"
-    checks["embedding"] = {"ok": cache.exists(), "model": embedding_model, "cache": str(cache), "note": "Downloaded on first index if absent"}
+    try:
+        import onnxruntime
+        providers = onnxruntime.get_available_providers()
+    except ImportError:
+        providers = []
+    requested_device = os.environ.get("EMBED_DEVICE", "cpu").lower()
+    checks["embedding"] = {
+        "ok": cache.exists(), "model": embedding_model, "cache": str(cache),
+        "device": "cuda" if "CUDAExecutionProvider" in providers and requested_device in {"cuda", "gpu"} else "cpu",
+        "requested_device": requested_device, "providers": providers,
+        "threads": int(os.environ.get("EMBED_THREADS", "0") or 0),
+        "batch_size": int(os.environ.get("EMBED_BATCH_SIZE", "128")),
+        "note": "Downloaded on first index if absent",
+    }
     return {"ok": all(item["ok"] for key, item in checks.items() if key != "embedding"), "checks": checks}

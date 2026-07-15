@@ -25,6 +25,11 @@ services:
       OLLAMA_HOST: http://127.0.0.1:11434
       QDRANT_URL: http://127.0.0.1:6333
       VECTOR_BACKEND: qdrant
+      EMBED_DEVICE: cpu
+      EMBED_THREADS: "16"
+      EMBED_BATCH_SIZE: "128"
+      QDRANT_UPLOAD_BATCH_SIZE: "128"
+      QDRANT_UPLOAD_PARALLEL: "4"
       AUTO_INDEX: "1"
     volumes:
       - ./Documentation:/app/Documentation

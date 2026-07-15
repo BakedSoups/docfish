@@ -14,7 +14,7 @@ class FakeEmbedder:
         self.calls = 0
         self.batch_sizes = []
 
-    def embed(self, texts):
+    def embed(self, texts, **kwargs):
         self.calls += len(texts)
         self.batch_sizes.append(len(texts))
         return [numpy.ones(384, dtype=numpy.float32) for _ in texts]
@@ -37,7 +37,7 @@ class IncrementalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source_path = root / "guide.md"
-            source_path.write_text("# Guide\n" + "focused evidence " * 6000)
+            source_path.write_text("# Guide\n" + "focused evidence " * 16000)
             original = (rag._database, rag._store, rag._embedder, dict(rag._status))
             test_database = None
             try:
@@ -50,10 +50,10 @@ class IncrementalTests(unittest.TestCase):
                 rag._index("guide")
                 first_calls = rag._embedder.calls
                 self.assertGreater(len(rag._embedder.batch_sizes), 1)
-                self.assertLessEqual(max(rag._embedder.batch_sizes), 48)
+                self.assertLessEqual(max(rag._embedder.batch_sizes), rag.EMBED_BATCH_SIZE)
                 rag._index("guide")
                 self.assertEqual(rag._embedder.calls, first_calls)
-                source_path.write_text("# Guide\n" + "changed evidence " * 6000)
+                source_path.write_text("# Guide\n" + "changed evidence " * 16000)
                 rag._index("guide")
                 self.assertGreater(rag._embedder.calls, first_calls)
             finally:

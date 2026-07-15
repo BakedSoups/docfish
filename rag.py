@@ -22,6 +22,10 @@ PDF_ROOT = Path(__file__).parent / "Documentation" / "PDF_docss"
 STATE_DB = Path(__file__).parent / "Documentation" / "docfish.sqlite"
 LEGACY_MANIFEST = Path(__file__).parent / "Documentation" / "qdrant" / "indexed.json"
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"
+EMBED_THREADS = int(os.environ.get("EMBED_THREADS", min(16, max(1, (os.cpu_count() or 4) - 4))))
+EMBED_BATCH_SIZE = int(os.environ.get("EMBED_BATCH_SIZE", "128"))
+EMBED_PARALLEL = int(os.environ.get("EMBED_PARALLEL", "0")) or None
+EMBED_DEVICE = os.environ.get("EMBED_DEVICE", "cpu").lower()
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://127.0.0.1:6333")
 VECTOR_BACKEND = os.environ.get("VECTOR_BACKEND", "qdrant" if "QDRANT_URL" in os.environ else "sqlite").lower()
 DOCS = {
@@ -104,15 +108,32 @@ def _discover_pdfs(db):
 def store():
     global _store
     if _store is None:
-        _store = QdrantVectorStore(QDRANT_URL) if VECTOR_BACKEND == "qdrant" else SQLiteVectorStore(database())
+        _store = QdrantVectorStore(
+            QDRANT_URL,
+            upload_batch_size=int(os.environ.get("QDRANT_UPLOAD_BATCH_SIZE", "128")),
+            upload_parallel=int(os.environ.get("QDRANT_UPLOAD_PARALLEL", "4")),
+        ) if VECTOR_BACKEND == "qdrant" else SQLiteVectorStore(database())
     return _store
 
 
 def embedder():
     global _embedder
     if _embedder is None:
-        # Leave enough CPU available for Ollama and the web UI while indexing.
-        _embedder = TextEmbedding(model_name=EMBED_MODEL, threads=4)
+        use_cuda = EMBED_DEVICE in {"cuda", "gpu"}
+        if use_cuda:
+            try:
+                import onnxruntime
+                use_cuda = "CUDAExecutionProvider" in onnxruntime.get_available_providers()
+            except ImportError:
+                use_cuda = False
+        if EMBED_DEVICE in {"cuda", "gpu"} and not use_cuda:
+            print("CUDA embedding requested but unavailable; falling back to CPU")
+        _embedder = TextEmbedding(
+            model_name=EMBED_MODEL,
+            threads=EMBED_THREADS,
+            cuda=use_cuda,
+            providers=["CUDAExecutionProvider", "CPUExecutionProvider"] if use_cuda else ["CPUExecutionProvider"],
+        )
     return _embedder
 
 
@@ -384,9 +405,13 @@ def _index(key, job_id=None):
                     continue
                 chunks = adapter.parse(source, path)
                 vector_lists = []
-                for batch_start in range(0, len(chunks), 48):
-                    batch = chunks[batch_start:batch_start + 48]
-                    vector_lists.extend(vector.tolist() for vector in embedder().embed([chunk.text for chunk in batch]))
+                for batch_start in range(0, len(chunks), EMBED_BATCH_SIZE):
+                    batch = chunks[batch_start:batch_start + EMBED_BATCH_SIZE]
+                    vector_lists.extend(vector.tolist() for vector in embedder().embed(
+                        [chunk.text for chunk in batch],
+                        batch_size=EMBED_BATCH_SIZE,
+                        parallel=EMBED_PARALLEL,
+                    ))
                 if chunks:
                     c.upsert(name, [(chunk.id, vector, chunk.payload()) for chunk, vector in zip(chunks, vector_lists)])
                 stale = database().replace_document(

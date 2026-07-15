@@ -88,8 +88,10 @@ class SQLiteVectorStore:
 
 
 class QdrantVectorStore:
-    def __init__(self, url: str):
+    def __init__(self, url: str, upload_batch_size: int = 128, upload_parallel: int = 4):
         self.client = QdrantClient(url=url)
+        self.upload_batch_size = upload_batch_size
+        self.upload_parallel = upload_parallel
 
     def collections(self) -> set[str]:
         return {item.name for item in self.client.get_collections().collections}
@@ -117,9 +119,12 @@ class QdrantVectorStore:
             )
 
     def upsert(self, name: str, points: list[tuple[str, list[float], dict[str, Any]]]) -> None:
-        self.client.upsert(
+        self.client.upload_points(
             collection_name=name,
             points=[models.PointStruct(id=id_, vector=vector, payload=payload) for id_, vector, payload in points],
+            batch_size=self.upload_batch_size,
+            parallel=self.upload_parallel,
+            max_retries=3,
             wait=True,
         )
 

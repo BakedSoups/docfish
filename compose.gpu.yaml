@@ -1,0 +1,20 @@
+# Requires NVIDIA Container Toolkit. Use with:
+# docker compose -f compose.yaml -f compose.gpu.yaml up --build -d
+services:
+  qdrant:
+    image: qdrant/qdrant:gpu-nvidia-latest
+    gpus: all
+    environment:
+      QDRANT__GPU__INDEXING: "1"
+
+  angler:
+    build:
+      args:
+        REQUIREMENTS_FILE: requirements-gpu.txt
+    gpus: all
+    environment:
+      EMBED_DEVICE: cuda
+      EMBED_THREADS: "8"
+      EMBED_BATCH_SIZE: "256"
+      QDRANT_UPLOAD_BATCH_SIZE: "256"
+      QDRANT_UPLOAD_PARALLEL: "4"

@@ -58,6 +58,18 @@ docker compose up --build -d
 
 This starts Docfish at <http://127.0.0.1:8080>, Qdrant on localhost port 6333, connects to the host Ollama service through Linux host networking, mounts the local documentation library, and automatically resumes unfinished indexes.
 
+### Performance profiles
+
+The default Compose profile uses 16 CPU embedding threads, 128-chunk embedding batches, and four parallel Qdrant upload workers. These can be adjusted with `EMBED_THREADS`, `EMBED_BATCH_SIZE`, `QDRANT_UPLOAD_BATCH_SIZE`, and `QDRANT_UPLOAD_PARALLEL` in `compose.yaml`.
+
+GPU embedding and Qdrant GPU indexing require NVIDIA Container Toolkit. After it is installed and `docker info` reports the NVIDIA runtime, start the GPU profile with:
+
+```bash
+docker compose -f compose.yaml -f compose.gpu.yaml up --build -d
+```
+
+The overlay installs `fastembed-gpu`, exposes the GPU to both containers, enables CUDA embedding, and uses Qdrant's NVIDIA GPU image. Docfish falls back to CPU embedding if CUDA was requested but its execution provider is unavailable.
+
 ## Diagnostics and cleanup
 
 - `docker compose exec angler python -m docfish.status` prints live RAG progress, processed files, documents, chunks, and errors for every source. Add `--json` for scripts.
