@@ -34,6 +34,20 @@
     </main>
 
     <footer>
+      <details id="question-workspace" class="question-workspace">
+        <summary>Craft a focused 1–3 shot question</summary>
+        <div class="question-grid">
+          <label><span>Goal</span><input id="q-goal" placeholder="What are you trying to accomplish?"></label>
+          <label><span>Known context</span><textarea id="q-context" rows="2" placeholder="Relevant language, framework, behavior, and error"></textarea></label>
+          <label><span>Constraints</span><textarea id="q-constraints" rows="2" placeholder="Requirements, limits, and what you already tried"></textarea></label>
+          <label><span>Exact question</span><textarea id="q-question" rows="2" placeholder="The decision or explanation you need"></textarea></label>
+          <label><span>Response format</span><input id="q-format" placeholder="Example: concise explanation and minimal code"></label>
+          <label><span>Examples (up to 3, separated by ---)</span><textarea id="q-examples" rows="3" placeholder="Input/output or attempts that guide the answer"></textarea></label>
+        </div>
+        <div class="question-actions"><button id="improve-question" type="button">Improve question</button><button id="missing-context" type="button">Find missing context</button><button id="use-question" type="button">Use this question</button></div>
+        <label class="proposal"><span>Proposed question — review and edit before using</span><textarea id="q-proposal" rows="4"></textarea></label>
+        <p id="question-feedback" role="status"></p>
+      </details>
       <form id="composer">
         <textarea id="input" rows="1" placeholder="Ask Docfish a code question…" aria-label="Message" required></textarea>
         <button id="send" type="submit" aria-label="Send message"><span>↑</span></button>

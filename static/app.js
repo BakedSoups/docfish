@@ -81,7 +81,11 @@ async function chat(text) {
       for (const line of lines) if (line.trim()) { const part = JSON.parse(line); answer += part.message?.content || ''; renderMarkdown(output,answer); window.scrollTo(0, document.body.scrollHeight); }
     }
     messages.push({ role:'assistant', content:answer });
-    if (sources.length) addSourceLinks(output, sources, text);
+    if (sources.length) {
+      addSourceLinks(output, sources, text);
+      const validation=await fetch('/api/questions/validate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({answer,source_count:sources.length})}).then(r=>r.json());
+      if(!validation.grounded){const warning=document.createElement('span');warning.className='rag-notice';warning.textContent=validation.warning;output.append(warning);}
+    }
   } catch (error) { output.textContent = error.name === 'AbortError' ? 'Generation stopped.' : `Error: ${error.message}`; }
   finally { output.classList.remove('thinking'); controller = null; send.disabled = false; input.focus(); }
 }
@@ -146,6 +150,13 @@ sourceForm.addEventListener('submit',async e=>{
   sourceEstimates.set(data.source.id,data.source); selectedDoc=data.source.id; feedback.textContent=`${data.source.files} supported files · ${formatBytes(data.source.source_bytes)} source · approximately ${formatBytes(data.source.estimated_index_bytes)} index. Review it below, then choose Index.`;
   sourceForm.reset(); await loadDocs();
 });
+
+function questionData(){return {goal:document.querySelector('#q-goal').value,context:document.querySelector('#q-context').value,constraints:document.querySelector('#q-constraints').value,question:document.querySelector('#q-question').value,format:document.querySelector('#q-format').value,examples:document.querySelector('#q-examples').value.split(/\n\s*---\s*\n/).filter(Boolean),model:modelSelect.value};}
+function compileQuestion(data){return [['Goal',data.goal],['Known context',data.context],['Constraints',data.constraints],['Exact question',data.question],['Desired response format',data.format]].filter(([,value])=>value.trim()).map(([label,value])=>`${label}: ${value.trim()}`).concat(data.examples.length?[`Examples:\n${data.examples.slice(0,3).map((value,index)=>`Example ${index+1}:\n${value.trim()}`).join('\n\n')}`]:[]).join('\n\n');}
+async function craftQuestion(mode){const feedback=document.querySelector('#question-feedback');feedback.textContent=mode==='missing'?'Checking what context is missing…':'Crafting a focused question…';const response=await fetch('/api/questions/craft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...questionData(),mode})});const data=await response.json();document.querySelector('#q-proposal').value=data.proposal||'';feedback.textContent=response.ok?'Review and edit the proposal before using it.':data.error||'Question crafting failed.';}
+document.querySelector('#improve-question').addEventListener('click',()=>craftQuestion('improve'));
+document.querySelector('#missing-context').addEventListener('click',()=>craftQuestion('missing'));
+document.querySelector('#use-question').addEventListener('click',()=>{const proposal=document.querySelector('#q-proposal').value.trim();input.value=proposal||compileQuestion(questionData());input.dispatchEvent(new Event('input'));input.focus();document.querySelector('#question-feedback').textContent='Question moved to the composer. You remain in control of the final edit and send.';});
 
 let docTimer;
 async function pollDocs() { clearTimeout(docTimer); await loadDocs(); if (docs.some(d=>['queued','indexing'].includes(d.state))) docTimer=setTimeout(pollDocs,1500); }

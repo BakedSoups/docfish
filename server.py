@@ -127,6 +127,19 @@ class Handler(SimpleHTTPRequestHandler):
                 self.json_response({"results": results})
             except (KeyError, RuntimeError, ValueError) as exc:
                 self.json_response({"error": str(exc)}, 400)
+        elif self.path == "/api/questions/craft":
+            from docfish.learning import crafting_prompt
+            try:
+                body = self.read_json()
+                prompt = crafting_prompt(body, body.get("mode", "improve"))
+                result = self.ollama_chat(body.get("model", ""), prompt)
+                self.json_response({"proposal": result})
+            except (ValueError, urllib.error.URLError, TimeoutError) as exc:
+                self.json_response({"error": str(exc)}, 502)
+        elif self.path == "/api/questions/validate":
+            from docfish.learning import validate_citations
+            body = self.read_json()
+            self.json_response(validate_citations(body.get("answer", ""), int(body.get("source_count", 0))))
         else:
             self.send_error(404)
 
@@ -200,6 +213,25 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
+
+    def ollama_chat(self, model, prompt):
+        if not model:
+            raise ValueError("Select a local model first")
+        payload = json.dumps({
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "You help programmers craft concise learning questions. Do not solve the question."},
+                {"role": "user", "content": prompt},
+            ],
+            "stream": False,
+        }).encode()
+        request = urllib.request.Request(
+            OLLAMA + "/api/chat", data=payload,
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=300) as response:
+            value = json.load(response)
+        return value.get("message", {}).get("content", "").strip()
 
     def log_message(self, fmt, *args):
         print(f"{self.address_string()} - {fmt % args}")
