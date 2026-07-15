@@ -1,7 +1,6 @@
 """Local HTML documentation catalog and embedded-Qdrant RAG index."""
 
 import hashlib
-import json
 import os
 import re
 import subprocess
@@ -11,13 +10,15 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 from fastembed import TextEmbedding
 from pypdf import PdfReader
+from docfish.database import Database
+from docfish.domain import Source
 from docfish.vector_store import QdrantVectorStore
 
 
 ROOT = Path(__file__).parent / "Documentation" / "HTML_docs"
 PDF_ROOT = Path(__file__).parent / "Documentation" / "PDF_docss"
-DB = Path(__file__).parent / "Documentation" / "qdrant"
-MANIFEST = DB / "indexed.json"
+STATE_DB = Path(__file__).parent / "Documentation" / "docfish.sqlite"
+LEGACY_MANIFEST = Path(__file__).parent / "Documentation" / "qdrant" / "indexed.json"
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://127.0.0.1:6333")
 DOCS = {
@@ -42,10 +43,43 @@ COVER_ASSETS = {
 }
 
 _store = None
+_database = None
 _embedder = None
 _lock = threading.Lock()
 _status = {}
 _all_worker_running = False
+
+
+def database():
+    global _database
+    if _database is None:
+        _database = Database(STATE_DB)
+        for key, (name, path) in DOCS.items():
+            if path.exists() and _database.get_source(key) is None:
+                _database.upsert_source(Source(key, name, "html", path, exclude=["404.html", "genindex.html", "py-modindex.html", "search.html"]))
+        _discover_pdfs(_database)
+        # Migrate completion state from the previous manifest once.
+        try:
+            import json
+            for key in json.loads(LEGACY_MANIFEST.read_text()):
+                if _database.get_source(key):
+                    _database.set_source_state(key, "ready", 100)
+        except (OSError, ValueError):
+            pass
+    return _database
+
+
+def _discover_pdfs(db):
+    if not PDF_ROOT.exists():
+        return
+    for path in sorted(PDF_ROOT.glob("*.pdf")):
+        digest = hashlib.sha1(path.name.encode()).hexdigest()[:10]
+        key = f"pdf-{digest}"
+        title = re.split(r"\s+-\s+Martin[- ]Kleppmann", path.stem, flags=re.I)[0].strip()
+        if title.islower():
+            title = title.title()
+        if db.get_source(key) is None:
+            db.upsert_source(Source(key, title or path.stem, "pdf", path))
 
 
 def store():
@@ -68,32 +102,27 @@ def collection(key):
 
 
 def all_docs():
-    result = dict(DOCS)
-    if PDF_ROOT.exists():
-        for path in sorted(PDF_ROOT.glob("*.pdf")):
-            digest = hashlib.sha1(path.name.encode()).hexdigest()[:10]
-            title = re.split(r"\s+-\s+Martin[- ]Kleppmann", path.stem, flags=re.I)[0].strip()
-            if title.islower():
-                title = title.title()
-            result[f"pdf-{digest}"] = (title or path.stem, path)
-    return result
+    _discover_pdfs(database())
+    return {row["id"]: (row["name"], Path(row["path"])) for row in database().list_sources()}
 
 
 def docs_catalog():
     existing = store().collections()
-    completed = _completed()
     result = []
     for key, (name, path) in all_docs().items():
         if not path.exists():
             continue
-        state = _status.get(key, {})
+        persisted = database().get_source(key) or {}
+        state = _status.get(key, persisted)
+        ready = collection(key) in existing and persisted.get("state") == "ready"
         result.append({
             "id": key, "name": name,
-            "indexed": collection(key) in existing and key in completed and state.get("state") not in ("indexing", "queued"),
-            "state": state.get("state", "ready" if collection(key) in existing and key in completed else "not_indexed"),
+            "indexed": ready and state.get("state") not in ("indexing", "queued"),
+            "state": state.get("state", "ready" if ready else "not_indexed"),
             "progress": state.get("progress", 0), "pages": state.get("pages", 0),
-            "home": _home_page(path),
-            "type": "pdf" if path.is_file() and path.suffix.lower() == ".pdf" else "html",
+            "home": persisted.get("home") or _home_page(path),
+            "type": persisted.get("kind", "pdf" if path.is_file() and path.suffix.lower() == ".pdf" else "html"),
+            "path": str(path), "error": state.get("error", ""),
         })
     return result
 
@@ -172,7 +201,8 @@ def start_index(key):
     if _status.get(key, {}).get("state") == "indexing":
         return
     _status[key] = {"state": "queued", "progress": 0, "pages": 0}
-    threading.Thread(target=_index, args=(key,), daemon=True).start()
+    job_id = database().create_job(key)
+    threading.Thread(target=_index, args=(key, job_id), daemon=True).start()
 
 
 def start_all():
@@ -180,18 +210,18 @@ def start_all():
     order = [key for key in ("git", "go", "python", "react", "numpy", "pandas") if key in all_docs()]
     order += [key for key in all_docs() if key.startswith("pdf-")]
     order += [key for key in ("godot", "javascript") if key in all_docs()]
-    completed = _completed()
     existing = store().collections()
-    pending = [key for key in order if key not in completed or collection(key) not in existing]
+    pending = [key for key in order if (database().get_source(key) or {}).get("state") != "ready" or collection(key) not in existing]
     if _all_worker_running:
         return pending
     for key in pending:
         _status[key] = {"state": "queued", "progress": 0, "pages": 0}
+    jobs = {key: database().create_job(key) for key in pending}
     def run():
         global _all_worker_running
         try:
             for key in pending:
-                _index(key)
+                _index(key, jobs[key])
         finally:
             _all_worker_running = False
     _all_worker_running = True
@@ -241,15 +271,17 @@ def _chunks(text, size=1400, overlap=180):
         start = max(end - overlap, start + 1)
 
 
-def _index(key):
+def _index(key, job_id=None):
     with _lock:
+        job_id = job_id or database().create_job(key)
         root = all_docs()[key][1]
         if root.is_file() and root.suffix.lower() == ".pdf":
-            _index_pdf(key, root)
+            _index_pdf(key, root, job_id)
             return
         excluded = {"404.html", "genindex.html", "py-modindex.html", "search.html"}
         pages = [path for path in root.rglob("*.html") if path.name.lower() not in excluded]
         _status[key] = {"state": "indexing", "progress": 0, "pages": len(pages)}
+        database().update_job(job_id, "indexing", 0, len(pages))
         try:
             c = store()
             name = collection(key)
@@ -276,12 +308,14 @@ def _index(key):
                         break
                 if number % 25 == 0:
                     _status[key]["progress"] = round(number * 100 / len(pages))
+                    database().update_job(job_id, "indexing", number, len(pages))
             if batch_text:
                 _upsert(c, name, batch_text, batch_meta)
             _status[key] = {"state": "ready", "progress": 100, "pages": len(pages)}
-            _mark_complete(key)
+            database().update_job(job_id, "ready", len(pages), len(pages))
         except Exception as exc:
             _status[key] = {"state": "error", "progress": 0, "pages": len(pages), "error": str(exc)}
+            database().update_job(job_id, "error", 0, len(pages), str(exc))
 
 
 def _upsert(c, name, texts, metadata):
@@ -299,7 +333,7 @@ def _upsert(c, name, texts, metadata):
 
 def search(key, query, limit=6):
     name = collection(key)
-    if not store().exists(name) or key not in _completed():
+    if not store().exists(name) or (database().get_source(key) or {}).get("state") != "ready":
         raise RuntimeError("This documentation set has not been indexed yet")
     vector = list(embedder().embed([query]))[0].tolist()
     response = store().query(name, vector, max(24, limit * 4))
@@ -343,9 +377,11 @@ def _pdf_pages(path):
     return _pdf_cache[cache_key]
 
 
-def _index_pdf(key, path):
+def _index_pdf(key, path, job_id=None):
     pages = _pdf_pages(path)
+    job_id = job_id or database().create_job(key)
     _status[key] = {"state": "indexing", "progress": 0, "pages": len(pages)}
+    database().update_job(job_id, "indexing", 0, len(pages))
     try:
         c = store()
         name = collection(key)
@@ -363,25 +399,11 @@ def _index_pdf(key, path):
                     batch_text, batch_meta = [], []
             if page_no % 10 == 0:
                 _status[key]["progress"] = round(page_no * 100 / len(pages))
+                database().update_job(job_id, "indexing", page_no, len(pages))
         if batch_text:
             _upsert(c, name, batch_text, batch_meta)
         _status[key] = {"state": "ready", "progress": 100, "pages": len(pages)}
-        _mark_complete(key)
+        database().update_job(job_id, "ready", len(pages), len(pages))
     except Exception as exc:
         _status[key] = {"state": "error", "progress": 0, "pages": len(pages), "error": str(exc)}
-
-
-def _completed():
-    try:
-        return set(json.loads(MANIFEST.read_text()))
-    except (OSError, ValueError):
-        return set()
-
-
-def _mark_complete(key):
-    completed = _completed()
-    completed.add(key)
-    MANIFEST.parent.mkdir(parents=True, exist_ok=True)
-    temporary = MANIFEST.with_suffix(".tmp")
-    temporary.write_text(json.dumps(sorted(completed)))
-    temporary.replace(MANIFEST)
+        database().update_job(job_id, "error", 0, len(pages), str(exc))
