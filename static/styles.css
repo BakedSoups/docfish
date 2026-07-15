@@ -91,6 +91,7 @@ h1 em { font-family:Arial, Helvetica, sans-serif; font-weight:400; color:var(--f
 .content pre { background:var(--deep); color:#e6f5f5; border:1px solid var(--line); padding:18px; border-radius:5px; overflow:auto; white-space:pre; }
 .content pre code { display:block; background:transparent; padding:0; color:inherit; border-radius:0; }
 .source-links { display:flex; flex-wrap:wrap; gap:6px; margin-top:16px; }
+.learning-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }.learning-actions button { border:1px solid var(--line); background:transparent; color:var(--muted); border-radius:4px; padding:7px 9px; cursor:pointer; font-size:10px; }.learning-actions button:hover { color:var(--foam); }
 .source-links button { border:1px solid var(--line); background:var(--surface); color:var(--foam); border-radius:4px; padding:7px 9px; cursor:pointer; font-size:10px; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .evidence { margin-top:12px; border:1px solid var(--line); border-radius:5px; background:#071a22; padding:10px 12px; }
 .evidence summary { cursor:pointer; color:var(--foam); font-size:11px; }

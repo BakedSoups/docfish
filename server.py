@@ -30,6 +30,25 @@ class Handler(SimpleHTTPRequestHandler):
         elif parsed.path == "/api/sources":
             import rag
             self.json_response({"sources": rag.docs_catalog()})
+        elif parsed.path == "/api/notes":
+            import rag
+            self.json_response({"notes": rag.database().list_notes()})
+        elif parsed.path == "/api/notes/export":
+            import rag
+            from docfish.learning import note_markdown
+            args = urllib.parse.parse_qs(parsed.query)
+            try:
+                note = rag.database().get_note(int(args.get("id", ["0"])[0]))
+            except ValueError:
+                note = None
+            if not note:
+                self.send_error(404)
+                return
+            if args.get("format", ["markdown"])[0] == "json":
+                self.json_response(note)
+            else:
+                payload = note_markdown(note).encode()
+                self.send_response(200); self.send_header("Content-Type", "text/markdown; charset=utf-8"); self.send_header("Content-Length", str(len(payload))); self.end_headers(); self.wfile.write(payload)
         elif parsed.path.startswith("/api/sources/"):
             import rag
             key = urllib.parse.unquote(parsed.path.removeprefix("/api/sources/").split("/", 1)[0])
@@ -141,6 +160,22 @@ class Handler(SimpleHTTPRequestHandler):
             from docfish.learning import validate_citations
             body = self.read_json()
             self.json_response(validate_citations(body.get("answer", ""), int(body.get("source_count", 0))))
+        elif self.path == "/api/notes":
+            import rag
+            body = self.read_json()
+            note = rag.database().save_note(
+                body.get("question", ""), body.get("crafted_prompt", ""),
+                body.get("answer", ""), body.get("citations", []), body.get("correction", ""),
+            )
+            self.json_response({"note": note}, 201)
+        elif self.path == "/api/learning/action":
+            from docfish.learning import learning_prompt
+            try:
+                body = self.read_json()
+                prompt = learning_prompt(body.get("mode", "explain"), body.get("question", ""), body.get("answer", ""), body.get("citations", []))
+                self.json_response({"result": self.ollama_chat(body.get("model", ""), prompt)})
+            except (ValueError, urllib.error.URLError, TimeoutError) as exc:
+                self.json_response({"error": str(exc)}, 502)
         else:
             self.send_error(404)
 
@@ -221,7 +256,7 @@ class Handler(SimpleHTTPRequestHandler):
         payload = json.dumps({
             "model": model,
             "messages": [
-                {"role": "system", "content": "You help programmers craft concise learning questions. Do not solve the question."},
+                {"role": "system", "content": "You are Docfish, a concise learning assistant for programmers. Follow the requested learning task and stay grounded in the supplied material."},
                 {"role": "user", "content": prompt},
             ],
             "stream": False,

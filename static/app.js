@@ -91,6 +91,7 @@ async function chat(text) {
       const validation=await fetch('/api/questions/validate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({answer,source_count:sources.length})}).then(r=>r.json());
       if(!validation.grounded){const warning=document.createElement('span');warning.className='rag-notice';warning.textContent=validation.warning;output.append(warning);}
     }
+    addLearningActions(output,text,answer,sources);
   } catch (error) { output.textContent = error.name === 'AbortError' ? 'Generation stopped.' : `Error: ${error.message}`; }
   finally { output.classList.remove('thinking'); controller = null; send.disabled = false; input.focus(); }
 }
@@ -114,6 +115,7 @@ function addSourceLinks(output, sources, query) {
   sources.forEach((source,index)=>{ const passage=document.createElement('div'); passage.className='evidence-passage'; const label=document.createElement('b'); label.textContent=`[${index+1}] ${source.page?`Page ${source.page}`:source.title}`; passage.append(label); passage.append(highlightText(source.text || '',query)); evidence.append(passage); });
   output.append(evidence);
 }
+function addLearningActions(output,question,answer,citations){const actions=document.createElement('div');actions.className='learning-actions';for(const [label,mode] of [['Save note','save'],['Explain simply','explain'],['Test me','quiz']]){const button=document.createElement('button');button.type='button';button.textContent=label;button.addEventListener('click',async()=>{button.disabled=true;if(mode==='save'){const response=await fetch('/api/notes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,crafted_prompt:question,answer,citations})});const data=await response.json();button.textContent=response.ok?`Saved note #${data.note.id}`:(data.error||'Save failed');}else{const response=await fetch('/api/learning/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode,question,answer,citations,model:modelSelect.value})});const data=await response.json();const content=addMessage('assistant');renderMarkdown(content,data.result||`Error: ${data.error||'Learning action failed'}`);}button.disabled=false;});actions.append(button);}output.append(actions);}
 function highlightText(text,query) { const wrap=document.createElement('p'); const terms=[...new Set(query.match(/[a-z0-9_]{3,}/gi)||[])].sort((a,b)=>b.length-a.length); if (!terms.length) { wrap.textContent=text; return wrap; } const pattern=new RegExp(`(${terms.map(t=>t.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|')})`,'gi'); text.slice(0,2200).split(pattern).forEach(part=>{ if(terms.some(t=>t.toLowerCase()===part.toLowerCase())) { const mark=document.createElement('mark'); mark.textContent=part; wrap.append(mark); } else wrap.append(document.createTextNode(part)); }); return wrap; }
 
 async function loadDocs() {

@@ -53,3 +53,26 @@ def evidence_status(results: list[dict], minimum_score: float = 0.2) -> dict:
         "best_score": round(best, 4),
         "message": "" if sufficient else "The selected source does not contain enough relevant evidence to answer this question.",
     }
+
+
+def learning_prompt(mode: str, question: str, answer: str, citations: list[dict]) -> str:
+    evidence = "\n".join(
+        f"[{index}] {item.get('citation') or item.get('path')}: {item.get('text', '')[:1200]}"
+        for index, item in enumerate(citations[:6], 1)
+    )
+    if mode == "quiz":
+        task = "Create two short questions: one recall question and one application question. Put answers in a collapsed answer key at the end."
+    else:
+        task = "Explain the answer more simply using a small mental model and one minimal example. Preserve all citation numbers."
+    return f"{task}\n\nOriginal question:\n{question}\n\nAnswer:\n{answer}\n\nEvidence:\n{evidence}"
+
+
+def note_markdown(note: dict) -> str:
+    citations = "\n".join(
+        f"- [{index}] {item.get('citation') or item.get('path', 'Source')}"
+        for index, item in enumerate(note.get("citations", []), 1)
+    ) or "- None"
+    return (
+        f"# Learning note {note['id']}\n\n## Question\n\n{note['question']}\n\n"
+        f"## Answer\n\n{note['answer']}\n\n## Sources\n\n{citations}\n"
+    )

@@ -294,6 +294,31 @@ class Database:
         """, (expression, source_id, limit)).fetchall()
         return [dict(row) for row in rows]
 
+    def save_note(self, question: str, crafted_prompt: str, answer: str, citations: list[dict], correction: str = "") -> dict:
+        with self.transaction() as db:
+            cursor = db.execute("""
+                INSERT INTO learning_notes(question, crafted_prompt, answer, citations, correction)
+                VALUES(?, ?, ?, ?, ?)
+            """, (question, crafted_prompt, answer, json.dumps(citations), correction))
+            note_id = int(cursor.lastrowid)
+        return self.get_note(note_id)
+
+    def list_notes(self) -> list[dict]:
+        rows = self.connection().execute(
+            "SELECT * FROM learning_notes ORDER BY id DESC"
+        ).fetchall()
+        return [self._note_row(row) for row in rows]
+
+    def get_note(self, note_id: int) -> dict | None:
+        row = self.connection().execute("SELECT * FROM learning_notes WHERE id=?", (note_id,)).fetchone()
+        return self._note_row(row) if row else None
+
+    @staticmethod
+    def _note_row(row: sqlite3.Row) -> dict:
+        value = dict(row)
+        value["citations"] = json.loads(value["citations"])
+        return value
+
     @staticmethod
     def _source_row(row: sqlite3.Row) -> dict:
         value = dict(row)
