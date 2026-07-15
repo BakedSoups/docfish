@@ -68,6 +68,8 @@ GPU embedding and Qdrant GPU indexing require NVIDIA Container Toolkit. After it
 docker compose -f compose.yaml -f compose.gpu.yaml up --build -d
 ```
 
+On Ubuntu/Debian, `sudo bash scripts/install-nvidia-container-toolkit.sh` follows NVIDIA's official apt installation and Docker runtime configuration steps. Review the script before running it because it modifies host package sources and restarts Docker.
+
 The overlay installs `fastembed-gpu`, exposes the GPU to both containers, enables CUDA embedding, and uses Qdrant's NVIDIA GPU image. Docfish falls back to CPU embedding if CUDA was requested but its execution provider is unavailable.
 
 ## Diagnostics and cleanup
