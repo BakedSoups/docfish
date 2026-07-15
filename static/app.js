@@ -13,8 +13,9 @@ const ragDoc = document.querySelector('#rag-doc');
 let messages = [];
 let controller = null;
 let docs = [];
-let selectedDoc = localStorage.getItem('angler-doc') || '';
-const anglerPrompt = 'You are Angler, a concise coding and documentation assistant. Answer code questions accurately and ideally in one shot. Lead with the solution or code. Keep explanations brief and practical unless the user asks for more detail. Do not add unnecessary background, follow-up questions, or filler.';
+let selectedDoc = localStorage.getItem('docfish-source') || localStorage.getItem('angler-doc') || '';
+const docfishPrompt = 'You are Docfish, a concise local-first learning assistant for programmers. Help the learner reason from visible evidence and produce an effective answer in one to three shots. Keep retrieved context focused. Lead with the solution, explain the key reasoning without hidden chain-of-thought, and preserve the learner’s autonomy.';
+const sourceEstimates = new Map();
 marked.use({gfm:true,breaks:true});
 function renderMarkdown(target,text) { target.innerHTML=DOMPurify.sanitize(marked.parse(text)); }
 
@@ -39,7 +40,7 @@ function addMessage(role, content = '') {
   welcome.hidden = true; messagesEl.classList.add('active');
   const el = document.createElement('article');
   el.className = `message ${role}`;
-  el.innerHTML = `<div class="role">${role === 'user' ? 'You' : 'Angler'}</div><div class="content"></div>`;
+  el.innerHTML = `<div class="role">${role === 'user' ? 'You' : 'Docfish'}</div><div class="content"></div>`;
   el.querySelector('.content').textContent = content;
   messagesEl.append(el); window.scrollTo({ top: document.body.scrollHeight, behavior:'smooth' });
   return el.querySelector('.content');
@@ -53,7 +54,7 @@ async function chat(text) {
   let answer = '';
   try {
     let sources = [];
-    let systemPrompt = anglerPrompt;
+    let systemPrompt = docfishPrompt;
     if (ragToggle.checked && selectedDoc) {
       output.textContent = 'Searching documentation…';
       const lookup = await fetch('/api/rag/search', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({doc:selectedDoc, query:text})});
@@ -116,7 +117,11 @@ function renderDocs() {
   for (const doc of docs) {
     const item=document.createElement('div'); item.className=`doc-item ${doc.id===selectedDoc?'selected':''}`;
     const state=doc.state==='indexing' ? `Indexing ${doc.progress}%` : doc.state==='queued' ? 'Queued' : doc.indexed ? 'RAG ready' : 'Not indexed';
-    item.innerHTML=`<div class="doc-cover"><img src="/api/docs/cover?doc=${encodeURIComponent(doc.id)}" alt="${doc.name} cover" onload="this.parentElement.classList.add('has-art')" onerror="this.remove()"><strong>${doc.name}</strong><em>${doc.type==='pdf'?'PDF BOOK':'OFFLINE DOCUMENTATION'}</em></div><span>${doc.name}</span><small class="${doc.indexed?'ready':''}">${state}</small>`;
+    const estimate=sourceEstimates.get(doc.id); const size=estimate ? ` · ${formatBytes(estimate.estimated_index_bytes)} index` : '';
+    const action=doc.state==='indexing'||doc.state==='queued' ? 'Cancel' : doc.indexed ? 'Refresh' : 'Index';
+    item.innerHTML=`<div class="doc-cover"><img src="/api/docs/cover?doc=${encodeURIComponent(doc.id)}" alt="${doc.name} cover" onload="this.parentElement.classList.add('has-art')" onerror="this.remove()"><strong>${doc.name}</strong><em>${doc.type.toUpperCase()} SOURCE</em></div><span>${doc.name}</span><small class="${doc.indexed?'ready':''}">${state}${size}</small><div class="doc-actions"><button class="index-doc" type="button">${action}</button><button class="remove-doc" type="button" title="Remove source record; files stay on disk">Remove</button></div>`;
+    item.querySelector('.index-doc').addEventListener('click',async e=>{ e.stopPropagation(); const active=doc.state==='indexing'||doc.state==='queued'; await fetch(`/api/sources/${encodeURIComponent(doc.id)}/${active?'cancel':'index'}`,{method:'POST'}); pollDocs(); });
+    item.querySelector('.remove-doc').addEventListener('click',async e=>{ e.stopPropagation(); if (!confirm(`Remove ${doc.name} from Docfish? Source files will not be deleted.`)) return; await fetch(`/api/sources/${encodeURIComponent(doc.id)}`,{method:'DELETE'}); if(selectedDoc===doc.id) selectedDoc=''; await loadDocs(); });
     item.addEventListener('click', () => { selectDoc(doc.id); document.querySelector('#library-modal').hidden=true; if (doc.type==='pdf' || doc.home) openDocument(doc.id,doc.home,doc.name,'reader'); });
     docList.append(item);
   }
@@ -127,10 +132,23 @@ function renderRagSelect() {
   for (const doc of docs) ragDoc.add(new Option(`${doc.indexed?'●':'○'} ${doc.name}`,doc.id));
   if (docs.some(doc=>doc.id===current)) ragDoc.value=current;
 }
-function selectDoc(id) { selectedDoc=id; localStorage.setItem('angler-doc',id); ragDoc.value=id; renderDocs(); searchPages(); }
+function selectDoc(id) { selectedDoc=id; localStorage.setItem('docfish-source',id); ragDoc.value=id; renderDocs(); searchPages(); }
+
+function formatBytes(value) { if (!value) return '0 B'; const units=['B','KB','MB','GB','TB']; const power=Math.min(Math.floor(Math.log(value)/Math.log(1024)),units.length-1); return `${(value/1024**power).toFixed(power?1:0)} ${units[power]}`; }
+
+const sourceForm=document.querySelector('#source-form');
+document.querySelector('#add-source').addEventListener('click',()=>{ sourceForm.hidden=false; document.querySelector('#source-name').focus(); });
+document.querySelector('#cancel-source').addEventListener('click',()=>{ sourceForm.hidden=true; document.querySelector('#source-feedback').textContent=''; });
+sourceForm.addEventListener('submit',async e=>{
+  e.preventDefault(); const feedback=document.querySelector('#source-feedback'); feedback.textContent='Inspecting supported files…';
+  const response=await fetch('/api/sources',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:document.querySelector('#source-name').value,path:document.querySelector('#source-path').value,kind:document.querySelector('#source-kind').value})});
+  const data=await response.json(); if(!response.ok){feedback.textContent=data.error||'Could not add source';return;}
+  sourceEstimates.set(data.source.id,data.source); selectedDoc=data.source.id; feedback.textContent=`${data.source.files} supported files · ${formatBytes(data.source.source_bytes)} source · approximately ${formatBytes(data.source.estimated_index_bytes)} index. Review it below, then choose Index.`;
+  sourceForm.reset(); await loadDocs();
+});
 
 let docTimer;
-async function pollDocs() { clearTimeout(docTimer); await loadDocs(); if (docs.some(d=>d.state==='indexing')) docTimer=setTimeout(pollDocs,1500); }
+async function pollDocs() { clearTimeout(docTimer); await loadDocs(); if (docs.some(d=>['queued','indexing'].includes(d.state))) docTimer=setTimeout(pollDocs,1500); }
 async function searchPages() {
   const query=document.querySelector('#doc-search').value.trim(); if (!selectedDoc) return;
   if (!query) { pageResults.innerHTML=''; return; }
@@ -147,6 +165,6 @@ document.querySelector('#open-library').addEventListener('click',()=>{ document.
 document.querySelector('#close-library').addEventListener('click',()=>document.querySelector('#library-modal').hidden=true);
 document.querySelector('#library-modal').addEventListener('click',e=>{ if (e.target.id==='library-modal') e.currentTarget.hidden=true; });
 ragDoc.addEventListener('change',()=>selectDoc(ragDoc.value));
-ragToggle.checked=localStorage.getItem('angler-rag')==='true'; ragToggle.addEventListener('change',()=>localStorage.setItem('angler-rag',ragToggle.checked));
+ragToggle.checked=(localStorage.getItem('docfish-rag') || localStorage.getItem('angler-rag'))==='true'; ragToggle.addEventListener('change',()=>localStorage.setItem('docfish-rag',ragToggle.checked));
 loadModels();
 loadDocs();

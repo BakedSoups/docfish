@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#171915">
   <title>Docfish</title>
-  <link rel="stylesheet" href="/styles.css?v=16">
+  <link rel="stylesheet" href="/styles.css?v=17">
 </head>
 <body>
   <aside class="docs-sidebar">
@@ -43,7 +43,14 @@
   </div>
   <section id="library-modal" class="library-modal" hidden>
     <div class="library-panel">
-      <header class="library-head"><div><p>ANGLER LIBRARY</p><h2>Your documentation</h2></div><div class="library-actions"><button id="close-library" aria-label="Close library">×</button></div></header>
+      <header class="library-head"><div><p>DOCFISH LIBRARY</p><h2>Your sources</h2></div><div class="library-actions"><button id="add-source" class="index-all" type="button">Add source</button><button id="close-library" aria-label="Close library">×</button></div></header>
+      <form id="source-form" class="source-form" hidden>
+        <label><span>Name</span><input id="source-name" required placeholder="My programming notes"></label>
+        <label class="source-path"><span>Local file or folder path</span><input id="source-path" required placeholder="/home/me/Documents/notes"></label>
+        <label><span>Type</span><select id="source-kind"><option value="auto">Auto detect</option><option value="html">HTML folder</option><option value="pdf">PDF</option><option value="markdown">Markdown</option><option value="text">Text/code</option></select></label>
+        <button type="submit">Inspect source</button><button id="cancel-source" type="button">Cancel</button>
+        <p id="source-feedback" role="status"></p>
+      </form>
       <div class="library-search"><input id="doc-search" type="search" placeholder="Search the selected book or documentation…"><button id="google-stack" type="button" title="Search Stack Overflow with Google">Search Stack Overflow ↗</button></div>
       <div class="aquarium" aria-hidden="true">
         <div class="water-light"></div><div class="seaweed weed-one"></div><div class="seaweed weed-two"></div><div class="seaweed weed-three"></div>
@@ -62,6 +69,6 @@
   </section>
   <script src="/purify.min.js"></script>
   <script src="/marked.umd.js"></script>
-  <script src="/app.js?v=16"></script>
+  <script src="/app.js?v=17"></script>
 </body>
 </html>
