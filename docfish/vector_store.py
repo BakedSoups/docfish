@@ -36,6 +36,9 @@ class SQLiteVectorStore:
         with self.database.transaction() as db:
             db.execute("DELETE FROM vector_points WHERE collection_name=?", (name,))
 
+    def delete_collection(self, name: str) -> None:
+        self.recreate(name, 0)
+
     def ensure(self, name: str, vector_size: int) -> None:
         return None
 
@@ -101,6 +104,10 @@ class QdrantVectorStore:
             name,
             vectors_config=models.VectorParams(size=vector_size, distance=models.Distance.COSINE),
         )
+
+    def delete_collection(self, name: str) -> None:
+        if self.exists(name):
+            self.client.delete_collection(name)
 
     def ensure(self, name: str, vector_size: int) -> None:
         if not self.exists(name):

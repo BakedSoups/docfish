@@ -176,6 +176,34 @@ def cancel_index(key):
     return database().request_cancel(key)
 
 
+def remove_index(key):
+    if database().get_source(key) is None:
+        raise KeyError(key)
+    store().delete_collection(collection(key))
+    database().clear_source_index(key)
+
+
+def cleanup_stale_indexes():
+    valid = {collection(row["id"]) for row in database().list_sources()}
+    stale = sorted(name for name in store().collections() if name.startswith(("angler_", "docfish_")) and name not in valid)
+    for name in stale:
+        store().delete_collection(name)
+    return stale
+
+
+def export_sources():
+    return [{key: row[key] for key in ("id", "name", "kind", "path", "include", "exclude", "home") } for row in database().list_sources()]
+
+
+def import_sources(rows):
+    imported = []
+    for row in rows:
+        source = create_source(row.get("name", ""), row.get("kind", "auto"), row.get("path", ""), row.get("include", []), row.get("exclude", []))
+        database().upsert_source(source)
+        imported.append(source.id)
+    return imported
+
+
 def _home_page(path):
     if path.is_file():
         return ""

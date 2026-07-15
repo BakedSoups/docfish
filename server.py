@@ -36,6 +36,16 @@ class Handler(SimpleHTTPRequestHandler):
         elif parsed.path == "/api/content-packs":
             import rag
             self.json_response({"packs": rag.content_packs().list()})
+        elif parsed.path == "/api/health":
+            import rag
+            from docfish.diagnostics import health
+            self.json_response(health(rag.database(), rag.store(), OLLAMA, rag.EMBED_MODEL))
+        elif parsed.path == "/api/storage":
+            import rag
+            self.json_response({"sources": rag.database().source_storage()})
+        elif parsed.path == "/api/settings/export":
+            import rag
+            self.json_response({"version": 1, "sources": rag.export_sources()})
         elif parsed.path == "/api/notes/export":
             import rag
             from docfish.learning import note_markdown
@@ -126,7 +136,7 @@ class Handler(SimpleHTTPRequestHandler):
                 self.json_response({"source": rag.add_source(self.read_json())}, 201)
             except (ValueError, OSError) as exc:
                 self.json_response({"error": str(exc)}, 400)
-        elif self.path.startswith("/api/sources/") and self.path.endswith("/index"):
+        elif self.path.startswith("/api/sources/") and self.path.endswith("/index") and not self.path.endswith("/remove-index"):
             import rag
             key = urllib.parse.unquote(self.path.removeprefix("/api/sources/").removesuffix("/index").strip("/"))
             try:
@@ -193,6 +203,23 @@ class Handler(SimpleHTTPRequestHandler):
                 self.json_response({"valid": rag.content_packs().verify(pack_id)})
             except KeyError:
                 self.json_response({"error": "Unknown content pack"}, 404)
+        elif self.path.startswith("/api/sources/") and self.path.endswith("/remove-index"):
+            import rag
+            key = urllib.parse.unquote(self.path.removeprefix("/api/sources/").removesuffix("/remove-index").strip("/"))
+            try:
+                rag.remove_index(key)
+                self.json_response({"ok": True})
+            except KeyError:
+                self.json_response({"error": "Unknown source"}, 404)
+        elif self.path == "/api/cleanup":
+            import rag
+            self.json_response({"removed": rag.cleanup_stale_indexes()})
+        elif self.path == "/api/settings/import":
+            import rag
+            try:
+                self.json_response({"imported": rag.import_sources(self.read_json().get("sources", []))})
+            except (ValueError, OSError) as exc:
+                self.json_response({"error": str(exc)}, 400)
         else:
             self.send_error(404)
 

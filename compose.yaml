@@ -1,7 +1,7 @@
 services:
   qdrant:
     image: qdrant/qdrant:latest
-    container_name: angler-qdrant
+    container_name: docfish-qdrant
     restart: unless-stopped
     ports:
       - "127.0.0.1:6333:6333"
@@ -15,7 +15,7 @@ services:
 
   angler:
     build: .
-    container_name: angler-app
+    container_name: docfish-app
     restart: unless-stopped
     depends_on:
       qdrant:

@@ -281,6 +281,23 @@ class Database:
             db.execute("DELETE FROM chunks WHERE source_id=? AND document_path=?", (source_id, document_path))
         return old_ids
 
+    def clear_source_index(self, source_id: str) -> None:
+        with self.transaction() as db:
+            db.execute("DELETE FROM chunks_fts WHERE source_id=?", (source_id,))
+            db.execute("DELETE FROM chunks WHERE source_id=?", (source_id,))
+            db.execute("DELETE FROM documents WHERE source_id=?", (source_id,))
+            db.execute("UPDATE sources SET state='not_indexed', progress=0, pages=0, index_bytes=0, error='', updated_at=CURRENT_TIMESTAMP WHERE id=?", (source_id,))
+
+    def source_storage(self) -> list[dict]:
+        rows = self.connection().execute("""
+            SELECT s.id, s.name,
+                   COALESCE((SELECT SUM(LENGTH(text) + LENGTH(vector)) FROM chunks WHERE source_id=s.id), 0) AS generated_bytes,
+                   (SELECT COUNT(*) FROM documents WHERE source_id=s.id) AS documents,
+                   (SELECT COUNT(*) FROM chunks WHERE source_id=s.id) AS chunks
+            FROM sources s ORDER BY generated_bytes DESC
+        """).fetchall()
+        return [dict(row) for row in rows]
+
     def lexical_search(self, source_id: str, query: str, limit: int = 20) -> list[dict]:
         terms = [term for term in query.replace('"', ' ').split() if term]
         if not terms:
