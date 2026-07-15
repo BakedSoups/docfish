@@ -133,6 +133,14 @@ class Database:
                     installed_path TEXT NOT NULL DEFAULT '',
                     installed_at TEXT
                 );
+
+                CREATE TABLE IF NOT EXISTS vector_points (
+                    collection_name TEXT NOT NULL,
+                    id TEXT NOT NULL,
+                    vector BLOB NOT NULL,
+                    payload TEXT NOT NULL,
+                    PRIMARY KEY(collection_name, id)
+                );
             """)
             db.execute(
                 "INSERT INTO settings(key, value) VALUES('schema_version', ?) "

@@ -24,6 +24,7 @@ services:
     environment:
       OLLAMA_HOST: http://127.0.0.1:11434
       QDRANT_URL: http://127.0.0.1:6333
+      VECTOR_BACKEND: qdrant
       AUTO_INDEX: "1"
     volumes:
       - ./Documentation:/app/Documentation

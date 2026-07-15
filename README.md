@@ -22,7 +22,7 @@ The current version provides local Ollama chat, an offline documentation library
 4. Docfish retrieves a focused set of relevant passages and adds them to the model's context.
 5. The model answers using that evidence, with links back to the source material.
 
-Everything runs locally. Ollama performs generation, the embedding model converts source passages into searchable vectors, and Qdrant stores the current vector indexes. No bundled model is required; the available model collection is determined by the models the user installs in Ollama.
+Everything runs locally. Ollama performs generation and the embedding model converts source passages into searchable vectors. Small libraries use embedded SQLite storage by default, while Qdrant remains available for large collections. No bundled model is required; the available model collection is determined by the models the user installs in Ollama.
 
 ## Run
 

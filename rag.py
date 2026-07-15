@@ -13,7 +13,7 @@ from docfish.database import Database
 from docfish.adapters import PARSER_VERSION, adapter_for, relative_path
 from docfish.domain import Source
 from docfish.sources import create_source, estimate, files_for
-from docfish.vector_store import QdrantVectorStore
+from docfish.vector_store import QdrantVectorStore, SQLiteVectorStore
 
 
 ROOT = Path(__file__).parent / "Documentation" / "HTML_docs"
@@ -22,6 +22,7 @@ STATE_DB = Path(__file__).parent / "Documentation" / "docfish.sqlite"
 LEGACY_MANIFEST = Path(__file__).parent / "Documentation" / "qdrant" / "indexed.json"
 EMBED_MODEL = "BAAI/bge-small-en-v1.5"
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://127.0.0.1:6333")
+VECTOR_BACKEND = os.environ.get("VECTOR_BACKEND", "qdrant" if "QDRANT_URL" in os.environ else "sqlite").lower()
 DOCS = {
     "godot": ("Godot", ROOT / "godot-docs-html-stable"),
     "pandas": ("Pandas", ROOT / "pandas"),
@@ -86,7 +87,7 @@ def _discover_pdfs(db):
 def store():
     global _store
     if _store is None:
-        _store = QdrantVectorStore(QDRANT_URL)
+        _store = QdrantVectorStore(QDRANT_URL) if VECTOR_BACKEND == "qdrant" else SQLiteVectorStore(database())
     return _store
 
 
@@ -340,15 +341,25 @@ def search(key, query, limit=6):
     vector = list(embedder().embed([query]))[0].tolist()
     response = store().query(name, vector, max(24, limit * 4))
     terms = {word for word in re.findall(r"[a-z0-9_]{2,}", query.lower()) if word not in {"the", "and", "for", "with", "how", "what", "why"}}
-    candidates = []
+    candidates = {}
     for point in response:
         payload = point.payload
         words = set(re.findall(r"[a-z0-9_]{2,}", payload.get("text", "").lower()))
         lexical = len(terms & words) / max(1, len(terms))
-        candidates.append((point.score * .72 + lexical * .28, payload))
-    candidates.sort(key=lambda item: item[0], reverse=True)
+        identity = (payload.get("path"), payload.get("chunk", 0))
+        candidates[identity] = (point.score * .72 + lexical * .28, payload)
+    for rank, payload in enumerate(database().lexical_search(key, query, max(24, limit * 4)), 1):
+        payload = {
+            "path": payload["document_path"], "title": payload["title"],
+            "chunk": payload["position"], "text": payload["text"], "page": payload["page"],
+        }
+        identity = (payload["path"], payload["chunk"])
+        lexical_score = 1 / (1 + rank)
+        prior = candidates.get(identity)
+        candidates[identity] = (max(prior[0] if prior else 0, lexical_score), payload)
+    ranked = sorted(candidates.values(), key=lambda item: item[0], reverse=True)
     chosen, seen = [], []
-    for score, payload in candidates:
+    for score, payload in ranked:
         identity = (payload.get("path"), payload.get("chunk", 0))
         if any(path == identity[0] and abs(chunk - identity[1]) <= 1 for path, chunk in seen):
             continue

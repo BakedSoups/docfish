@@ -4,11 +4,84 @@ The indexing layer depends on this adapter instead of Qdrant directly. A small
 embedded backend can therefore be added without changing parsing or retrieval.
 """
 
+import json
+import math
+from array import array
 from typing import Any
 
 from qdrant_client import QdrantClient, models
 
 from .domain import SearchResult
+
+
+class SQLiteVectorStore:
+    """Small-library vector search with no service or Docker dependency."""
+
+    def __init__(self, database):
+        self.database = database
+
+    def collections(self) -> set[str]:
+        rows = self.database.connection().execute(
+            "SELECT DISTINCT collection_name FROM vector_points"
+        ).fetchall()
+        return {row[0] for row in rows}
+
+    def exists(self, name: str) -> bool:
+        row = self.database.connection().execute(
+            "SELECT 1 FROM vector_points WHERE collection_name=? LIMIT 1", (name,)
+        ).fetchone()
+        return row is not None
+
+    def recreate(self, name: str, vector_size: int) -> None:
+        with self.database.transaction() as db:
+            db.execute("DELETE FROM vector_points WHERE collection_name=?", (name,))
+
+    def ensure(self, name: str, vector_size: int) -> None:
+        return None
+
+    def upsert(self, name: str, points: list[tuple[str, list[float], dict[str, Any]]]) -> None:
+        with self.database.transaction() as db:
+            db.executemany("""
+                INSERT INTO vector_points(collection_name, id, vector, payload) VALUES(?, ?, ?, ?)
+                ON CONFLICT(collection_name, id) DO UPDATE SET vector=excluded.vector, payload=excluded.payload
+            """, [
+                (name, id_, array("f", vector).tobytes(), json.dumps(payload))
+                for id_, vector, payload in points
+            ])
+
+    def delete_ids(self, name: str, ids: list[str]) -> None:
+        if not ids:
+            return
+        with self.database.transaction() as db:
+            db.executemany(
+                "DELETE FROM vector_points WHERE collection_name=? AND id=?",
+                [(name, id_) for id_ in ids],
+            )
+
+    def query(self, name: str, vector: list[float], limit: int) -> list[SearchResult]:
+        norm = math.sqrt(sum(value * value for value in vector)) or 1.0
+        rows = self.database.connection().execute(
+            "SELECT vector, payload FROM vector_points WHERE collection_name=?", (name,)
+        ).fetchall()
+        results = []
+        for row in rows:
+            candidate = array("f")
+            candidate.frombytes(row["vector"])
+            candidate_norm = math.sqrt(sum(value * value for value in candidate)) or 1.0
+            score = sum(left * right for left, right in zip(vector, candidate)) / (norm * candidate_norm)
+            results.append(SearchResult(score, json.loads(row["payload"])))
+        results.sort(key=lambda item: item.score, reverse=True)
+        return results[:limit]
+
+    def neighbors(self, name: str, path: str, position: int, radius: int = 1) -> list[dict[str, Any]]:
+        rows = self.database.connection().execute(
+            "SELECT payload FROM vector_points WHERE collection_name=?", (name,)
+        ).fetchall()
+        payloads = [json.loads(row[0]) for row in rows]
+        return sorted(
+            [item for item in payloads if item.get("path") == path and abs(item.get("chunk", 0) - position) <= radius],
+            key=lambda item: item.get("chunk", 0),
+        )
 
 
 class QdrantVectorStore:
