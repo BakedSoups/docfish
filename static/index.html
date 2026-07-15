@@ -4,38 +4,38 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#171915">
-  <title>Angler</title>
+  <title>Docfish</title>
   <link rel="stylesheet" href="/styles.css?v=16">
 </head>
 <body>
   <aside class="docs-sidebar">
-    <div class="side-head"><img src="/anglerfish_idle.gif" alt="Angler"></div>
+    <div class="side-head"><img src="/anglerfish_idle.gif" alt="Docfish"></div>
     <button id="open-library" class="rail-button" type="button"><span class="rail-icon">▥</span><b>Library</b></button>
     <label class="rag-switch"><span><b>RAG mode</b><small>Answer from selected docs</small></span><input id="rag-toggle" type="checkbox"><i></i></label>
     <label class="rag-source"><span>Source</span><select id="rag-doc" aria-label="RAG documentation source"><option value="">Choose…</option></select></label>
   </aside>
   <div class="shell">
     <header>
-      <a class="brand" href="/" aria-label="Angler home"><span>Angler</span></a>
+      <a class="brand" href="/" aria-label="Docfish home"><span>Docfish</span></a>
       <div class="controls">
         <span id="status" class="status" aria-label="Model service status"><i></i><span></span></span>
         <label class="model-select"><span>Model</span><select id="model" aria-label="Choose model"><option>Loading…</option></select></label>
-        <img class="header-avatar" src="/anglerfish_idle.gif" alt="Angler">
+        <img class="header-avatar" src="/anglerfish_idle.gif" alt="Docfish">
       </div>
     </header>
 
     <main id="chat">
       <section id="welcome" class="welcome">
-        <div class="angler-logo"><img src="/anglerfish_idle.gif" alt="Angler fish"></div>
-        <p class="eyebrow">ANGLER</p>
-        <h1>Angler</h1>
+        <div class="angler-logo"><img src="/anglerfish_idle.gif" alt="Docfish"></div>
+        <p class="eyebrow">DOCFISH</p>
+        <h1>Docfish</h1>
       </section>
       <section id="messages" class="messages" aria-live="polite"></section>
     </main>
 
     <footer>
       <form id="composer">
-        <textarea id="input" rows="1" placeholder="Ask Angler a code question…" aria-label="Message" required></textarea>
+        <textarea id="input" rows="1" placeholder="Ask Docfish a code question…" aria-label="Message" required></textarea>
         <button id="send" type="submit" aria-label="Send message"><span>↑</span></button>
       </form>
       <div class="footer-meta"><button id="clear" type="button">Reset chat · Ctrl+R</button><span>Enter to send · Shift+Enter for a new line</span></div>

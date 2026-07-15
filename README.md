@@ -1,6 +1,28 @@
-# Angler
+# Docfish
 
-A concise, sea-inspired coding and documentation assistant for the models installed in Ollama. It discovers models automatically, lets you switch between them, and streams responses.
+Docfish is a local-first learning workspace that combines semantic search, retrieval-augmented generation (RAG), and local language models. It retrieves focused evidence and helps programmers craft effective one-to-three-shot questions while keeping context short, sources visible, and the learning process in the programmer's control.
+
+Rather than relying on one large cloud model, Docfish works with the models installed in Ollama. It discovers them automatically, lets the learner select the right local model for a task, and streams its response. RAG supplies the selected model with a small number of relevant passages from local documentation and books, making smaller models more useful without flooding their context windows.
+
+## What Docfish is for
+
+- Learning from local documentation, books, notes, and other reference material
+- Turning an incomplete question into a focused one-shot prompt
+- Grounding an answer in retrieved evidence instead of relying only on model memory
+- Comparing and using small local models without sending learning material to a hosted AI service
+- Following citations back into the original document
+
+The current version provides local Ollama chat, an offline documentation library, PDF support, vector search, and cited evidence. The planned product expands this into user-managed sources, restart-safe incremental indexing, structured question crafting, learning notes, and short quizzes. See [plan.md](plan.md) for the implementation roadmap.
+
+## How it works
+
+1. Select one of the small language models available through Ollama.
+2. Select and index a local reference source.
+3. Ask a question and enable **RAG mode**.
+4. Docfish retrieves a focused set of relevant passages and adds them to the model's context.
+5. The model answers using that evidence, with links back to the source material.
+
+Everything runs locally. Ollama performs generation, the embedding model converts source passages into searchable vectors, and Qdrant stores the current vector indexes. No bundled model is required; the available model collection is determined by the models the user installs in Ollama.
 
 ## Run
 
@@ -20,13 +42,15 @@ OLLAMA_HOST=http://192.168.1.10:11434 venv/bin/python server.py
 
 ## Documentation RAG
 
-The Library browses the installed Godot, Pandas, Go, JavaScript/MDN, NumPy, React, Python, Git, and PDF manuals. Click **Index** beside a library once, then enable **RAG mode** to ground answers in that selected documentation. Qdrant runs locally in Docker and stores its data under `Documentation/qdrant-server`.
+The current Library browses the installed Godot, Pandas, Go, JavaScript/MDN, NumPy, React, Python, Git, and PDF manuals. Click **Index** beside a library once, then enable **RAG mode** to ground answers in that selected documentation. Qdrant runs locally in Docker and stores its data under `Documentation/qdrant-server`.
+
+These documentation collections are part of the current development setup, not the intended default download. The planned release keeps the core application lightweight and lets each user add only the sources and optional content packs they need.
 
 ```bash
 docker compose up --build -d
 ```
 
-This starts Angler at <http://127.0.0.1:8080>, Qdrant on localhost port 6333, connects to the host Ollama service through Linux host networking, mounts the local documentation library, and automatically resumes unfinished indexes.
+This starts Docfish at <http://127.0.0.1:8080>, Qdrant on localhost port 6333, connects to the host Ollama service through Linux host networking, mounts the local documentation library, and automatically resumes unfinished indexes.
 
 The sidebar’s **Google ↗** button runs a normal `site:stackoverflow.com` Google search in a new tab. It does not scrape Google or require an API key.
 
