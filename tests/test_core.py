@@ -12,6 +12,7 @@ from docfish.domain import Chunk, Source
 from docfish.learning import evidence_status, structured_question, validate_citations
 from docfish.sources import create_source, estimate, files_for
 from docfish.vector_store import SQLiteVectorStore
+from docfish.status import render_table, status_rows
 
 
 class CoreTests(unittest.TestCase):
@@ -92,6 +93,18 @@ class CoreTests(unittest.TestCase):
         self.assertTrue(evidence_status([{"score": 0.7}])["sufficient"])
         self.assertTrue(validate_citations("Supported [1].", 2)["grounded"])
         self.assertEqual(validate_citations("Invented [3].", 2)["invalid"], [3])
+
+    def test_status_command_reports_jobs_and_chunks(self):
+        self.database.upsert_source(Source("s", "Python", "text", self.root / "python.txt"))
+        job = self.database.create_job("s", 10)
+        self.database.update_job(job, "indexing", 4, 10)
+        chunk = Chunk("c", "s", "python.txt", "Python", "semantic evidence", 0)
+        self.database.replace_document("s", "python.txt", "hash", 1, 1, "1", "Python", [chunk], [[0.0] * 384])
+        rows = status_rows(self.database.path)
+        output = render_table(rows)
+        self.assertEqual(rows[0]["processed"], 4)
+        self.assertIn("40%", output)
+        self.assertIn("4/10", output)
 
     def test_content_pack_install_verify_and_uninstall(self):
         archive = self.root / "pack.zip"
