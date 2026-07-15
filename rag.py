@@ -45,6 +45,7 @@ _client = None
 _embedder = None
 _lock = threading.Lock()
 _status = {}
+_all_worker_running = False
 
 
 def client():
@@ -175,17 +176,25 @@ def start_index(key):
 
 
 def start_all():
+    global _all_worker_running
     order = [key for key in ("git", "go", "python", "react", "numpy", "pandas") if key in all_docs()]
     order += [key for key in all_docs() if key.startswith("pdf-")]
     order += [key for key in ("godot", "javascript") if key in all_docs()]
     completed = _completed()
     existing = {item.name for item in client().get_collections().collections}
     pending = [key for key in order if key not in completed or collection(key) not in existing]
+    if _all_worker_running:
+        return pending
     for key in pending:
         _status[key] = {"state": "queued", "progress": 0, "pages": 0}
     def run():
-        for key in pending:
-            _index(key)
+        global _all_worker_running
+        try:
+            for key in pending:
+                _index(key)
+        finally:
+            _all_worker_running = False
+    _all_worker_running = True
     threading.Thread(target=run, daemon=True).start()
     return pending
 
@@ -197,21 +206,23 @@ def _clean_page(path):
             tag.decompose()
         title = soup.title.get_text(" ", strip=True) if soup.title else path.stem
         main = soup.find("main") or soup.find("article") or soup.body or soup
-        sections, anchor, parts = [], "", []
-        for element in main.find_all(["h1", "h2", "h3", "p", "pre", "li", "dt", "dd"]):
+        sections, anchor, parts, seen_blocks = [], "", [], set()
+        for element in main.find_all(["h1", "h2", "h3", "p", "pre", "dt", "dd"]):
             text = re.sub(r"\s+", " ", element.get_text(" ", strip=True)).strip()
-            if not text:
+            fingerprint = hashlib.sha1(text.encode()).digest() if text else b""
+            if not text or fingerprint in seen_blocks:
                 continue
+            seen_blocks.add(fingerprint)
             if element.name in ("h1", "h2", "h3"):
                 if parts:
-                    sections.append((anchor, " ".join(parts)))
+                    sections.append((anchor, " ".join(parts)[:280_000]))
                 parent_with_id = element.find_parent(id=True)
                 anchor = element.get("id", "") or (parent_with_id.get("id", "") if parent_with_id else "")
                 parts = [text]
             else:
                 parts.append(text)
         if parts:
-            sections.append((anchor, " ".join(parts)))
+            sections.append((anchor, " ".join(parts)[:280_000]))
         if not sections:
             sections = [("", re.sub(r"\s+", " ", main.get_text(" ", strip=True)).strip())]
         return title, sections
@@ -236,7 +247,8 @@ def _index(key):
         if root.is_file() and root.suffix.lower() == ".pdf":
             _index_pdf(key, root)
             return
-        pages = list(root.rglob("*.html"))
+        excluded = {"404.html", "genindex.html", "py-modindex.html", "search.html"}
+        pages = [path for path in root.rglob("*.html") if path.name.lower() not in excluded]
         _status[key] = {"state": "indexing", "progress": 0, "pages": len(pages)}
         try:
             c = client()
@@ -257,9 +269,13 @@ def _index(key):
                         batch_text.append(chunk)
                         batch_meta.append((source_path, title, chunk_no))
                         chunk_no += 1
+                        if chunk_no >= 500:
+                            break
                         if len(batch_text) >= 48:
                             _upsert(c, name, batch_text, batch_meta)
                             batch_text, batch_meta = [], []
+                    if chunk_no >= 500:
+                        break
                 if number % 25 == 0:
                     _status[key]["progress"] = round(number * 100 / len(pages))
             if batch_text:
