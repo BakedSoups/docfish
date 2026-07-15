@@ -1,0 +1,22 @@
+FROM nvidia/cuda:13.0.2-cudnn-runtime-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-pip python3-venv poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+RUN python3 -m venv /opt/docfish
+ENV PATH="/opt/docfish/bin:${PATH}"
+
+COPY requirements-gpu.txt ./
+RUN pip install --no-cache-dir -r requirements-gpu.txt
+
+COPY server.py rag.py anglerfish_idle.gif content-packs.json ./
+COPY docfish ./docfish
+COPY static ./static
+
+ENV HOST=0.0.0.0 PORT=8080
+EXPOSE 8080
+CMD ["python", "server.py"]

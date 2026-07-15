@@ -131,7 +131,6 @@ def embedder():
         _embedder = TextEmbedding(
             model_name=EMBED_MODEL,
             threads=EMBED_THREADS,
-            cuda=use_cuda,
             providers=["CUDAExecutionProvider", "CPUExecutionProvider"] if use_cuda else ["CPUExecutionProvider"],
         )
     return _embedder
