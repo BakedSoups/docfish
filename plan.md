@@ -96,6 +96,8 @@ Primary actions:
 
 Each commit should leave the application runnable and include focused verification.
 
+Implementation status: **completed on July 14, 2026.** The work landed as focused commits matching the areas below, with small follow-up fixes discovered by container smoke testing. The running Docker deployment and the embedded non-Docker path are both retained.
+
 ### 1. `chore: rename Angler to Docfish and define product boundaries`
 
 - Replace all remaining Angler product references with Docfish across code, UI, documentation, metadata, container names, configuration examples, accessibility labels, and generated messages.
