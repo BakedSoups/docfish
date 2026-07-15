@@ -8,7 +8,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY server.py rag.py anglerfish_idle.gif ./
+COPY server.py rag.py anglerfish_idle.gif content-packs.json ./
+COPY docfish ./docfish
 COPY static ./static
 
 ENV HOST=0.0.0.0 PORT=8080
