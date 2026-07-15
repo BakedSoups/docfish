@@ -13,6 +13,7 @@ from docfish.database import Database
 from docfish.adapters import PARSER_VERSION, adapter_for, relative_path
 from docfish.domain import Source
 from docfish.sources import create_source, estimate, files_for
+from docfish.content_packs import ContentPacks
 from docfish.vector_store import QdrantVectorStore, SQLiteVectorStore
 
 
@@ -46,6 +47,7 @@ COVER_ASSETS = {
 
 _store = None
 _database = None
+_packs = None
 _embedder = None
 _lock = threading.Lock()
 _status = {}
@@ -69,6 +71,13 @@ def database():
         except (OSError, ValueError):
             pass
     return _database
+
+
+def content_packs():
+    global _packs
+    if _packs is None:
+        _packs = ContentPacks(database(), Path(__file__).parent / "content-packs.json", Path(__file__).parent / "Documentation" / "packs")
+    return _packs
 
 
 def _discover_pdfs(db):

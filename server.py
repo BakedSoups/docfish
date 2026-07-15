@@ -33,6 +33,9 @@ class Handler(SimpleHTTPRequestHandler):
         elif parsed.path == "/api/notes":
             import rag
             self.json_response({"notes": rag.database().list_notes()})
+        elif parsed.path == "/api/content-packs":
+            import rag
+            self.json_response({"packs": rag.content_packs().list()})
         elif parsed.path == "/api/notes/export":
             import rag
             from docfish.learning import note_markdown
@@ -176,11 +179,33 @@ class Handler(SimpleHTTPRequestHandler):
                 self.json_response({"result": self.ollama_chat(body.get("model", ""), prompt)})
             except (ValueError, urllib.error.URLError, TimeoutError) as exc:
                 self.json_response({"error": str(exc)}, 502)
+        elif self.path.startswith("/api/content-packs/") and self.path.endswith("/install"):
+            import rag
+            pack_id = urllib.parse.unquote(self.path.removeprefix("/api/content-packs/").removesuffix("/install").strip("/"))
+            try:
+                self.json_response({"pack": rag.content_packs().install(pack_id)}, 201)
+            except (KeyError, OSError, ValueError, urllib.error.URLError) as exc:
+                self.json_response({"error": str(exc)}, 400)
+        elif self.path.startswith("/api/content-packs/") and self.path.endswith("/verify"):
+            import rag
+            pack_id = urllib.parse.unquote(self.path.removeprefix("/api/content-packs/").removesuffix("/verify").strip("/"))
+            try:
+                self.json_response({"valid": rag.content_packs().verify(pack_id)})
+            except KeyError:
+                self.json_response({"error": "Unknown content pack"}, 404)
         else:
             self.send_error(404)
 
     def do_DELETE(self):
-        if self.path.startswith("/api/sources/"):
+        if self.path.startswith("/api/content-packs/"):
+            import rag
+            pack_id = urllib.parse.unquote(self.path.removeprefix("/api/content-packs/").strip("/"))
+            try:
+                rag.content_packs().uninstall(pack_id)
+                self.json_response({"ok": True})
+            except KeyError:
+                self.json_response({"error": "Unknown content pack"}, 404)
+        elif self.path.startswith("/api/sources/"):
             import rag
             key = urllib.parse.unquote(self.path.removeprefix("/api/sources/").strip("/"))
             try:

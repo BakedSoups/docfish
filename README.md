@@ -46,6 +46,10 @@ The current Library browses the installed Godot, Pandas, Go, JavaScript/MDN, Num
 
 These documentation collections are part of the current development setup, not the intended default download. The planned release keeps the core application lightweight and lets each user add only the sources and optional content packs they need.
 
+## Optional content packs
+
+Docfish installs no documentation pack automatically. `GET /api/content-packs` lists available packs with their exact download estimate, installed-size estimate, license, version, and checksum. Installing a pack is an explicit action; its archive is verified before extraction, and uninstalling removes only the managed pack directory. The initial catalog contains the official Python 3.14.6 HTML documentation.
+
 ```bash
 docker compose up --build -d
 ```
