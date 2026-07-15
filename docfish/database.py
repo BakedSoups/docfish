@@ -33,6 +33,12 @@ class Database:
             self._local.connection = connection
         return connection
 
+    def close(self) -> None:
+        connection = getattr(self._local, "connection", None)
+        if connection is not None:
+            connection.close()
+            del self._local.connection
+
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
         connection = self.connection()

@@ -9,6 +9,9 @@ from .adapters import supported, supported_for_kind
 from .domain import Source
 
 
+DEFAULT_HTML_EXCLUDES = ["404.html", "genindex*.html", "py-modindex.html", "search.html"]
+
+
 def source_id(name: str, path: Path) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:32] or "source"
     digest = hashlib.sha1(str(path).encode()).hexdigest()[:8]
@@ -28,9 +31,12 @@ def create_source(name: str, kind: str, raw_path: str, include=None, exclude=Non
         raise ValueError("Unsupported source type")
     if path.is_file() and not supported(path):
         raise ValueError("Unsupported file type")
+    excludes = list(exclude or [])
+    if kind == "html":
+        excludes = list(dict.fromkeys([*excludes, *DEFAULT_HTML_EXCLUDES]))
     return Source(
         source_id(name, path), name.strip(), kind, path,
-        list(include or []), list(exclude or []),
+        list(include or []), excludes,
     )
 
 

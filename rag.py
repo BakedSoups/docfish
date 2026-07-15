@@ -12,7 +12,7 @@ from pypdf import PdfReader
 from docfish.database import Database
 from docfish.adapters import PARSER_VERSION, adapter_for, relative_path
 from docfish.domain import Source
-from docfish.sources import create_source, estimate, files_for
+from docfish.sources import DEFAULT_HTML_EXCLUDES, create_source, estimate, files_for
 from docfish.content_packs import ContentPacks
 from docfish.vector_store import QdrantVectorStore, SQLiteVectorStore
 
@@ -60,7 +60,15 @@ def database():
         _database = Database(STATE_DB)
         for key, (name, path) in DOCS.items():
             if path.exists() and _database.get_source(key) is None:
-                _database.upsert_source(Source(key, name, "html", path, exclude=["404.html", "genindex.html", "py-modindex.html", "search.html"]))
+                _database.upsert_source(Source(key, name, "html", path, exclude=DEFAULT_HTML_EXCLUDES))
+            elif path.exists():
+                current = _database.get_source(key)
+                excludes = list(dict.fromkeys([*current["exclude"], *DEFAULT_HTML_EXCLUDES]))
+                if excludes != current["exclude"]:
+                    _database.upsert_source(Source(
+                        key, current["name"], current["kind"], Path(current["path"]),
+                        current["include"], excludes, current["home"], current["state"],
+                    ))
         _discover_pdfs(_database)
         # Migrate completion state from the previous manifest once.
         try:
@@ -375,8 +383,10 @@ def _index(key, job_id=None):
                 if adapter is None:
                     continue
                 chunks = adapter.parse(source, path)
-                vectors = list(embedder().embed([chunk.text for chunk in chunks])) if chunks else []
-                vector_lists = [vector.tolist() for vector in vectors]
+                vector_lists = []
+                for batch_start in range(0, len(chunks), 48):
+                    batch = chunks[batch_start:batch_start + 48]
+                    vector_lists.extend(vector.tolist() for vector in embedder().embed([chunk.text for chunk in batch]))
                 if chunks:
                     c.upsert(name, [(chunk.id, vector, chunk.payload()) for chunk, vector in zip(chunks, vector_lists)])
                 stale = database().replace_document(

@@ -10,7 +10,7 @@ from docfish.content_packs import ContentPacks
 from docfish.database import Database
 from docfish.domain import Chunk, Source
 from docfish.learning import evidence_status, structured_question, validate_citations
-from docfish.sources import create_source, estimate
+from docfish.sources import create_source, estimate, files_for
 from docfish.vector_store import SQLiteVectorStore
 
 
@@ -21,6 +21,7 @@ class CoreTests(unittest.TestCase):
         self.database = Database(self.root / "state.sqlite")
 
     def tearDown(self):
+        self.database.close()
         self.temporary.cleanup()
 
     def test_html_markdown_and_text_adapters(self):
@@ -53,6 +54,13 @@ class CoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             create_source("Missing", "auto", str(self.root / "missing"))
 
+    def test_html_sources_skip_generated_indexes(self):
+        (self.root / "index.html").write_text("documentation")
+        (self.root / "genindex-all.html").write_text("generated")
+        (self.root / "genindex-A.html").write_text("generated")
+        source = create_source("Docs", "html", str(self.root))
+        self.assertEqual([path.name for path in files_for(source)], ["index.html"])
+
     def test_jobs_recover_and_indexes_clear_without_source_deletion(self):
         source_file = self.root / "source.txt"
         source_file.write_text("keep me")
@@ -68,6 +76,7 @@ class CoreTests(unittest.TestCase):
         reopened.clear_source_index("s")
         self.assertTrue(source_file.exists())
         self.assertEqual(reopened.source_storage()[0]["chunks"], 0)
+        reopened.close()
 
     def test_lexical_and_embedded_vector_search(self):
         self.database.upsert_source(Source("s", "Source", "text", self.root / "source.txt"))
