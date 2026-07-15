@@ -11,7 +11,7 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 from fastembed import TextEmbedding
 from pypdf import PdfReader
-from qdrant_client import QdrantClient, models
+from docfish.vector_store import QdrantVectorStore
 
 
 ROOT = Path(__file__).parent / "Documentation" / "HTML_docs"
@@ -41,18 +41,18 @@ COVER_ASSETS = {
     "python": ROOT / "python/python-3.14-docs-html/_static/og-image.png",
 }
 
-_client = None
+_store = None
 _embedder = None
 _lock = threading.Lock()
 _status = {}
 _all_worker_running = False
 
 
-def client():
-    global _client
-    if _client is None:
-        _client = QdrantClient(url=QDRANT_URL)
-    return _client
+def store():
+    global _store
+    if _store is None:
+        _store = QdrantVectorStore(QDRANT_URL)
+    return _store
 
 
 def embedder():
@@ -80,7 +80,7 @@ def all_docs():
 
 
 def docs_catalog():
-    existing = {c.name for c in client().get_collections().collections}
+    existing = store().collections()
     completed = _completed()
     result = []
     for key, (name, path) in all_docs().items():
@@ -181,7 +181,7 @@ def start_all():
     order += [key for key in all_docs() if key.startswith("pdf-")]
     order += [key for key in ("godot", "javascript") if key in all_docs()]
     completed = _completed()
-    existing = {item.name for item in client().get_collections().collections}
+    existing = store().collections()
     pending = [key for key in order if key not in completed or collection(key) not in existing]
     if _all_worker_running:
         return pending
@@ -251,11 +251,9 @@ def _index(key):
         pages = [path for path in root.rglob("*.html") if path.name.lower() not in excluded]
         _status[key] = {"state": "indexing", "progress": 0, "pages": len(pages)}
         try:
-            c = client()
+            c = store()
             name = collection(key)
-            if c.collection_exists(name):
-                c.delete_collection(name)
-            c.create_collection(name, vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE))
+            c.recreate(name, 384)
             batch_text, batch_meta = [], []
             for number, path in enumerate(pages, 1):
                 title, sections = _clean_page(path)
@@ -292,22 +290,22 @@ def _upsert(c, name, texts, metadata):
     for text, meta, vector in zip(texts, metadata, vectors):
         path, title, chunk_no, *page_value = meta
         identity = hashlib.sha1(f"{path}:{chunk_no}".encode()).hexdigest()[:32]
-        points.append(models.PointStruct(id=identity, vector=vector.tolist(), payload={
+        points.append((identity, vector.tolist(), {
             "path": path, "title": title, "chunk": chunk_no, "text": text,
             **({"page": page_value[0]} if page_value else {}),
         }))
-    c.upsert(collection_name=name, points=points, wait=True)
+    c.upsert(name, points)
 
 
 def search(key, query, limit=6):
     name = collection(key)
-    if not client().collection_exists(name) or key not in _completed():
+    if not store().exists(name) or key not in _completed():
         raise RuntimeError("This documentation set has not been indexed yet")
     vector = list(embedder().embed([query]))[0].tolist()
-    response = client().query_points(collection_name=name, query=vector, limit=max(24, limit * 4), with_payload=True)
+    response = store().query(name, vector, max(24, limit * 4))
     terms = {word for word in re.findall(r"[a-z0-9_]{2,}", query.lower()) if word not in {"the", "and", "for", "with", "how", "what", "why"}}
     candidates = []
-    for point in response.points:
+    for point in response:
         payload = point.payload
         words = set(re.findall(r"[a-z0-9_]{2,}", payload.get("text", "").lower()))
         lexical = len(terms & words) / max(1, len(terms))
@@ -330,20 +328,10 @@ def _neighbor_text(name, payload):
     path, chunk = payload.get("path"), payload.get("chunk", 0)
     if not path:
         return payload.get("text", "")
-    points, _ = client().scroll(
-        collection_name=name,
-        scroll_filter=models.Filter(must=[
-            models.FieldCondition(key="path", match=models.MatchValue(value=path)),
-            models.FieldCondition(key="chunk", range=models.Range(gte=max(0, chunk - 1), lte=chunk + 1)),
-        ]),
-        limit=3,
-        with_payload=True,
-        with_vectors=False,
-    )
+    points = store().neighbors(name, path, chunk)
     if not points:
         return payload.get("text", "")
-    points.sort(key=lambda point: point.payload.get("chunk", 0))
-    return " ".join(point.payload.get("text", "") for point in points)
+    return " ".join(point.get("text", "") for point in points)
 
 
 def _pdf_pages(path):
@@ -359,11 +347,9 @@ def _index_pdf(key, path):
     pages = _pdf_pages(path)
     _status[key] = {"state": "indexing", "progress": 0, "pages": len(pages)}
     try:
-        c = client()
+        c = store()
         name = collection(key)
-        if c.collection_exists(name):
-            c.delete_collection(name)
-        c.create_collection(name, vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE))
+        c.recreate(name, 384)
         batch_text, batch_meta = [], []
         for page_no, text in enumerate(pages, 1):
             clean = re.sub(r"\s+", " ", text).strip()
