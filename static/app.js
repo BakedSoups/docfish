@@ -67,6 +67,11 @@ async function chat(text) {
         return;
       }
       sources = found.results || [];
+      if (!found.evidence?.sufficient) {
+        output.textContent=found.evidence?.message || 'The selected source does not contain enough relevant evidence to answer this question.';
+        messages.pop();
+        return;
+      }
       const context = sources.map((s,i) => `[${i+1}] PAGE: ${s.page || s.path}\nPATH: ${s.path}\nTITLE: ${s.title}\n${s.text}`).join('\n\n');
       systemPrompt += `\n\nWork from the evidence excerpts below. First identify which exact passage answers the question, then formulate the concise answer from that evidence. Use only these excerpts for factual claims about the selected library. Cite every factual claim inline as [1], [2], etc. For PDFs, state the physical page number. For HTML documentation, state the page path and section anchor. Never invent a page reference. Clearly say when the evidence does not contain the answer. End with a short Sources list containing every cited page or path. Do not reveal private chain-of-thought; provide the answer and supporting citations only.\n\n${context}`;
       output.textContent = '';

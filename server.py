@@ -121,10 +121,11 @@ class Handler(SimpleHTTPRequestHandler):
                 self.json_response({"error": "Unknown source"}, 404)
         elif self.path == "/api/rag/search":
             import rag
+            from docfish.learning import evidence_status
             try:
                 body = self.read_json()
                 results = rag.search(body.get("doc", ""), body.get("query", ""))
-                self.json_response({"results": results})
+                self.json_response({"results": results, "evidence": evidence_status(results)})
             except (KeyError, RuntimeError, ValueError) as exc:
                 self.json_response({"error": str(exc)}, 400)
         elif self.path == "/api/questions/craft":

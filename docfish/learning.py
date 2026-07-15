@@ -43,3 +43,13 @@ def validate_citations(answer: str, source_count: int) -> dict:
         "invalid": invalid,
         "warning": "" if valid and not invalid else "The answer did not provide valid citations for the retrieved evidence.",
     }
+
+
+def evidence_status(results: list[dict], minimum_score: float = 0.2) -> dict:
+    best = max((float(item.get("score", 0)) for item in results), default=0.0)
+    sufficient = bool(results) and best >= minimum_score
+    return {
+        "sufficient": sufficient,
+        "best_score": round(best, 4),
+        "message": "" if sufficient else "The selected source does not contain enough relevant evidence to answer this question.",
+    }

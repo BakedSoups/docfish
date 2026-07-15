@@ -365,7 +365,8 @@ def search(key, query, limit=6):
             continue
         seen.append(identity)
         expanded = _neighbor_text(name, payload)
-        chosen.append({"score": round(score, 4), **payload, "text": expanded})
+        citation = f"Page {payload['page']}" if payload.get("page") else payload.get("path", "")
+        chosen.append({"score": round(score, 4), **payload, "text": expanded, "source_id": key, "citation": citation})
         if len(chosen) >= limit:
             break
     return chosen
