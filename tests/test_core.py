@@ -5,7 +5,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from docfish.adapters import HtmlAdapter, MarkdownAdapter, TextAdapter, split_text
+from docfish.adapters import HtmlAdapter, MarkdownAdapter, TextAdapter, split_text, supported_for_kind
 from docfish.content_packs import ContentPacks
 from docfish.database import Database
 from docfish.domain import Chunk, Source
@@ -48,6 +48,8 @@ class CoreTests(unittest.TestCase):
         source = create_source("Notes", "auto", str(path))
         self.assertEqual(source.kind, "markdown")
         self.assertEqual(estimate(source)["files"], 1)
+        self.assertTrue(supported_for_kind(path, "markdown"))
+        self.assertFalse(supported_for_kind(path, "html"))
         with self.assertRaises(ValueError):
             create_source("Missing", "auto", str(self.root / "missing"))
 
@@ -110,4 +112,3 @@ class CoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -104,6 +104,15 @@ def supported(path: Path) -> bool:
     return adapter_for(path) is not None
 
 
+def supported_for_kind(path: Path, kind: str) -> bool:
+    adapter = adapter_for(path)
+    expected = {
+        "html": HtmlAdapter, "pdf": PdfAdapter,
+        "markdown": MarkdownAdapter, "text": TextAdapter,
+    }.get(kind)
+    return adapter is not None and (expected is None or isinstance(adapter, expected))
+
+
 def relative_path(source: Source, path: Path) -> str:
     if source.path.is_file():
         return path.name
@@ -116,4 +125,3 @@ def make_chunks(source: Source, path: Path, title: str, text: str) -> list[Chunk
         Chunk(chunk_id(source.id, relative, position), source.id, relative, title, value, position)
         for position, value in enumerate(split_text(text)) if len(value) >= 40
     ]
-

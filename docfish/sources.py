@@ -5,7 +5,7 @@ import hashlib
 import re
 from pathlib import Path
 
-from .adapters import supported
+from .adapters import supported, supported_for_kind
 from .domain import Source
 
 
@@ -48,7 +48,7 @@ def detect_kind(path: Path) -> str:
 def files_for(source: Source):
     candidates = [source.path] if source.path.is_file() else source.path.rglob("*")
     for path in candidates:
-        if not path.is_file() or not supported(path):
+        if not path.is_file() or not supported_for_kind(path, source.kind):
             continue
         relative = path.name if source.path.is_file() else path.relative_to(source.path).as_posix()
         if source.include and not any(fnmatch.fnmatch(relative, pattern) for pattern in source.include):
