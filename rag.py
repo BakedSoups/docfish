@@ -7,10 +7,10 @@ import subprocess
 import threading
 from pathlib import Path
 
-from bs4 import BeautifulSoup
 from fastembed import TextEmbedding
 from pypdf import PdfReader
 from docfish.database import Database
+from docfish.adapters import PARSER_VERSION, adapter_for, relative_path
 from docfish.domain import Source
 from docfish.sources import create_source, estimate, files_for
 from docfish.vector_store import QdrantVectorStore
@@ -276,106 +276,61 @@ def start_all():
     return pending
 
 
-def _clean_page(path):
-    try:
-        soup = BeautifulSoup(path.read_bytes(), "html.parser")
-        for tag in soup(["script", "style", "nav", "footer", "noscript", "svg"]):
-            tag.decompose()
-        title = soup.title.get_text(" ", strip=True) if soup.title else path.stem
-        main = soup.find("main") or soup.find("article") or soup.body or soup
-        sections, anchor, parts, seen_blocks = [], "", [], set()
-        for element in main.find_all(["h1", "h2", "h3", "p", "pre", "dt", "dd"]):
-            text = re.sub(r"\s+", " ", element.get_text(" ", strip=True)).strip()
-            fingerprint = hashlib.sha1(text.encode()).digest() if text else b""
-            if not text or fingerprint in seen_blocks:
-                continue
-            seen_blocks.add(fingerprint)
-            if element.name in ("h1", "h2", "h3"):
-                if parts:
-                    sections.append((anchor, " ".join(parts)[:280_000]))
-                parent_with_id = element.find_parent(id=True)
-                anchor = element.get("id", "") or (parent_with_id.get("id", "") if parent_with_id else "")
-                parts = [text]
-            else:
-                parts.append(text)
-        if parts:
-            sections.append((anchor, " ".join(parts)[:280_000]))
-        if not sections:
-            sections = [("", re.sub(r"\s+", " ", main.get_text(" ", strip=True)).strip())]
-        return title, sections
-    except Exception:
-        return path.stem, []
-
-
-def _chunks(text, size=1400, overlap=180):
-    start = 0
-    while start < len(text):
-        end = min(len(text), start + size)
-        if end < len(text):
-            split = text.rfind(" ", start + size // 2, end)
-            end = split if split > start else end
-        yield text[start:end]
-        start = max(end - overlap, start + 1)
-
-
 def _index(key, job_id=None):
     with _lock:
         job_id = job_id or database().create_job(key)
-        root = all_docs()[key][1]
-        if root.is_file() and root.suffix.lower() == ".pdf":
-            _index_pdf(key, root, job_id)
-            return
-        excluded = {"404.html", "genindex.html", "py-modindex.html", "search.html"}
-        pages = [path for path in root.rglob("*.html") if path.name.lower() not in excluded]
+        row = database().get_source(key)
+        if row is None:
+            raise KeyError(key)
+        source = Source(
+            row["id"], row["name"], row["kind"], Path(row["path"]),
+            row["include"], row["exclude"], row["home"], row["state"],
+        )
+        pages = list(files_for(source))
         _status[key] = {"state": "indexing", "progress": 0, "pages": len(pages)}
         database().update_job(job_id, "indexing", 0, len(pages))
         try:
             c = store()
             name = collection(key)
-            c.recreate(name, 384)
-            batch_text, batch_meta = [], []
+            c.ensure(name, 384)
+            manifest = database().document_manifest(key)
+            seen = set()
             for number, path in enumerate(pages, 1):
-                title, sections = _clean_page(path)
-                rel = path.relative_to(root).as_posix()
-                chunk_no = 0
-                for anchor, text in sections:
-                    if len(text) < 80:
-                        continue
-                    source_path = f"{rel}#{anchor}" if anchor else rel
-                    for chunk in _chunks(text):
-                        batch_text.append(chunk)
-                        batch_meta.append((source_path, title, chunk_no))
-                        chunk_no += 1
-                        if chunk_no >= 500:
-                            break
-                        if len(batch_text) >= 48:
-                            _upsert(c, name, batch_text, batch_meta)
-                            batch_text, batch_meta = [], []
-                    if chunk_no >= 500:
-                        break
-                if number % 25 == 0:
-                    _status[key]["progress"] = round(number * 100 / len(pages))
+                if database().is_cancel_requested(job_id):
+                    _status[key] = {"state": "cancelled", "progress": round((number - 1) * 100 / max(1, len(pages))), "pages": len(pages)}
+                    database().update_job(job_id, "cancelled", number - 1, len(pages))
+                    return
+                relative = relative_path(source, path)
+                seen.add(relative)
+                stat = path.stat()
+                content = path.read_bytes()
+                digest = hashlib.sha256(content).hexdigest()
+                previous = manifest.get(relative)
+                if previous and previous["content_hash"] == digest and previous["parser_version"] == PARSER_VERSION:
                     database().update_job(job_id, "indexing", number, len(pages))
-            if batch_text:
-                _upsert(c, name, batch_text, batch_meta)
+                    continue
+                adapter = adapter_for(path)
+                if adapter is None:
+                    continue
+                chunks = adapter.parse(source, path)
+                vectors = list(embedder().embed([chunk.text for chunk in chunks])) if chunks else []
+                vector_lists = [vector.tolist() for vector in vectors]
+                if chunks:
+                    c.upsert(name, [(chunk.id, vector, chunk.payload()) for chunk, vector in zip(chunks, vector_lists)])
+                stale = database().replace_document(
+                    key, relative, digest, stat.st_mtime_ns, stat.st_size,
+                    PARSER_VERSION, chunks[0].title if chunks else path.stem, chunks, vector_lists,
+                )
+                c.delete_ids(name, list(stale))
+                _status[key]["progress"] = round(number * 100 / max(1, len(pages)))
+                database().update_job(job_id, "indexing", number, len(pages))
+            for relative in set(manifest) - seen:
+                c.delete_ids(name, list(database().remove_document(key, relative)))
             _status[key] = {"state": "ready", "progress": 100, "pages": len(pages)}
             database().update_job(job_id, "ready", len(pages), len(pages))
         except Exception as exc:
             _status[key] = {"state": "error", "progress": 0, "pages": len(pages), "error": str(exc)}
             database().update_job(job_id, "error", 0, len(pages), str(exc))
-
-
-def _upsert(c, name, texts, metadata):
-    vectors = list(embedder().embed(texts))
-    points = []
-    for text, meta, vector in zip(texts, metadata, vectors):
-        path, title, chunk_no, *page_value = meta
-        identity = hashlib.sha1(f"{path}:{chunk_no}".encode()).hexdigest()[:32]
-        points.append((identity, vector.tolist(), {
-            "path": path, "title": title, "chunk": chunk_no, "text": text,
-            **({"page": page_value[0]} if page_value else {}),
-        }))
-    c.upsert(name, points)
 
 
 def search(key, query, limit=6):
@@ -422,35 +377,3 @@ def _pdf_pages(path):
         _pdf_cache.clear()
         _pdf_cache[cache_key] = [(page.extract_text() or "") for page in reader.pages]
     return _pdf_cache[cache_key]
-
-
-def _index_pdf(key, path, job_id=None):
-    pages = _pdf_pages(path)
-    job_id = job_id or database().create_job(key)
-    _status[key] = {"state": "indexing", "progress": 0, "pages": len(pages)}
-    database().update_job(job_id, "indexing", 0, len(pages))
-    try:
-        c = store()
-        name = collection(key)
-        c.recreate(name, 384)
-        batch_text, batch_meta = [], []
-        for page_no, text in enumerate(pages, 1):
-            clean = re.sub(r"\s+", " ", text).strip()
-            for chunk_no, chunk in enumerate(_chunks(clean)):
-                if len(chunk) < 80:
-                    continue
-                batch_text.append(chunk)
-                batch_meta.append((f"#page={page_no}", f"{path.stem} — page {page_no}", chunk_no, page_no))
-                if len(batch_text) >= 48:
-                    _upsert(c, name, batch_text, batch_meta)
-                    batch_text, batch_meta = [], []
-            if page_no % 10 == 0:
-                _status[key]["progress"] = round(page_no * 100 / len(pages))
-                database().update_job(job_id, "indexing", page_no, len(pages))
-        if batch_text:
-            _upsert(c, name, batch_text, batch_meta)
-        _status[key] = {"state": "ready", "progress": 100, "pages": len(pages)}
-        database().update_job(job_id, "ready", len(pages), len(pages))
-    except Exception as exc:
-        _status[key] = {"state": "error", "progress": 0, "pages": len(pages), "error": str(exc)}
-        database().update_job(job_id, "error", 0, len(pages), str(exc))

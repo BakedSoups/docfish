@@ -3,11 +3,13 @@
 import json
 import sqlite3
 import threading
+from array import array
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
 from .domain import Source
+from .domain import Chunk
 
 
 SCHEMA_VERSION = 1
@@ -219,6 +221,70 @@ class Database:
     def is_cancel_requested(self, job_id: int) -> bool:
         row = self.connection().execute("SELECT cancel_requested FROM index_jobs WHERE id=?", (job_id,)).fetchone()
         return bool(row and row[0])
+
+    def document_manifest(self, source_id: str) -> dict[str, dict]:
+        rows = self.connection().execute(
+            "SELECT * FROM documents WHERE source_id=?", (source_id,)
+        ).fetchall()
+        return {row["path"]: dict(row) for row in rows}
+
+    def chunk_ids(self, source_id: str, document_path: str) -> set[str]:
+        rows = self.connection().execute(
+            "SELECT id FROM chunks WHERE source_id=? AND document_path=?",
+            (source_id, document_path),
+        ).fetchall()
+        return {row[0] for row in rows}
+
+    def replace_document(
+        self, source_id: str, document_path: str, content_hash: str,
+        modified_ns: int, size_bytes: int, parser_version: str,
+        title: str, chunks: list[Chunk], vectors: list[list[float]],
+    ) -> set[str]:
+        old_ids = self.chunk_ids(source_id, document_path)
+        new_ids = {chunk.id for chunk in chunks}
+        with self.transaction() as db:
+            db.execute("DELETE FROM chunks_fts WHERE chunk_id IN (SELECT id FROM chunks WHERE source_id=? AND document_path=?)", (source_id, document_path))
+            db.execute("DELETE FROM chunks WHERE source_id=? AND document_path=?", (source_id, document_path))
+            for chunk, vector in zip(chunks, vectors):
+                blob = array("f", vector).tobytes()
+                db.execute("""
+                    INSERT INTO chunks(id, source_id, document_path, title, text, position, anchor, page, vector)
+                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (chunk.id, source_id, document_path, chunk.title, chunk.text, chunk.position, chunk.anchor, chunk.page, blob))
+                db.execute(
+                    "INSERT INTO chunks_fts(chunk_id, source_id, title, text) VALUES(?, ?, ?, ?)",
+                    (chunk.id, source_id, chunk.title, chunk.text),
+                )
+            db.execute("""
+                INSERT INTO documents(source_id, path, content_hash, modified_ns, size_bytes, parser_version, title)
+                VALUES(?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_id, path) DO UPDATE SET
+                    content_hash=excluded.content_hash, modified_ns=excluded.modified_ns,
+                    size_bytes=excluded.size_bytes, parser_version=excluded.parser_version,
+                    title=excluded.title, indexed_at=CURRENT_TIMESTAMP
+            """, (source_id, document_path, content_hash, modified_ns, size_bytes, parser_version, title))
+        return old_ids - new_ids
+
+    def remove_document(self, source_id: str, document_path: str) -> set[str]:
+        old_ids = self.chunk_ids(source_id, document_path)
+        with self.transaction() as db:
+            db.execute("DELETE FROM chunks_fts WHERE chunk_id IN (SELECT id FROM chunks WHERE source_id=? AND document_path=?)", (source_id, document_path))
+            db.execute("DELETE FROM documents WHERE source_id=? AND path=?", (source_id, document_path))
+            db.execute("DELETE FROM chunks WHERE source_id=? AND document_path=?", (source_id, document_path))
+        return old_ids
+
+    def lexical_search(self, source_id: str, query: str, limit: int = 20) -> list[dict]:
+        terms = [term for term in query.replace('"', ' ').split() if term]
+        if not terms:
+            return []
+        expression = " OR ".join(f'"{term}"' for term in terms[:12])
+        rows = self.connection().execute("""
+            SELECT c.*, bm25(chunks_fts) AS rank
+            FROM chunks_fts JOIN chunks c ON c.id=chunks_fts.chunk_id
+            WHERE chunks_fts MATCH ? AND chunks_fts.source_id=?
+            ORDER BY rank LIMIT ?
+        """, (expression, source_id, limit)).fetchall()
+        return [dict(row) for row in rows]
 
     @staticmethod
     def _source_row(row: sqlite3.Row) -> dict:

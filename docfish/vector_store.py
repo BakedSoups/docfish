@@ -29,12 +29,27 @@ class QdrantVectorStore:
             vectors_config=models.VectorParams(size=vector_size, distance=models.Distance.COSINE),
         )
 
+    def ensure(self, name: str, vector_size: int) -> None:
+        if not self.exists(name):
+            self.client.create_collection(
+                name,
+                vectors_config=models.VectorParams(size=vector_size, distance=models.Distance.COSINE),
+            )
+
     def upsert(self, name: str, points: list[tuple[str, list[float], dict[str, Any]]]) -> None:
         self.client.upsert(
             collection_name=name,
             points=[models.PointStruct(id=id_, vector=vector, payload=payload) for id_, vector, payload in points],
             wait=True,
         )
+
+    def delete_ids(self, name: str, ids: list[str]) -> None:
+        if ids:
+            self.client.delete(
+                collection_name=name,
+                points_selector=models.PointIdsList(points=ids),
+                wait=True,
+            )
 
     def query(self, name: str, vector: list[float], limit: int) -> list[SearchResult]:
         response = self.client.query_points(
