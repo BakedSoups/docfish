@@ -12,6 +12,7 @@ from fastembed import TextEmbedding
 from pypdf import PdfReader
 from docfish.database import Database
 from docfish.domain import Source
+from docfish.sources import create_source, estimate, files_for
 from docfish.vector_store import QdrantVectorStore
 
 
@@ -127,6 +128,44 @@ def docs_catalog():
     return result
 
 
+def add_source(data):
+    source = create_source(
+        data.get("name", ""), data.get("kind", "auto"), data.get("path", ""),
+        data.get("include", []), data.get("exclude", []),
+    )
+    try:
+        database().upsert_source(source)
+    except Exception as exc:
+        if "UNIQUE constraint" in str(exc):
+            raise ValueError("That source path is already registered") from exc
+        raise
+    return source_details(source.id)
+
+
+def source_details(key):
+    row = database().get_source(key)
+    if row is None:
+        raise KeyError(key)
+    source = Source(
+        row["id"], row["name"], row["kind"], Path(row["path"]),
+        row["include"], row["exclude"], row["home"], row["state"],
+    )
+    return {**row, **estimate(source)}
+
+
+def remove_source(key):
+    if not database().remove_source(key):
+        raise KeyError(key)
+    # Source files are deliberately never removed.
+    return True
+
+
+def cancel_index(key):
+    if database().get_source(key) is None:
+        raise KeyError(key)
+    return database().request_cancel(key)
+
+
 def _home_page(path):
     if path.is_file():
         return ""
@@ -183,9 +222,17 @@ def list_pages(key, query="", limit=80):
             if len(results) >= limit:
                 break
         return results
+    if root.is_file():
+        text = root.read_text(encoding="utf-8", errors="replace")
+        words = query.lower().split()
+        if words and not all(word in text.lower() for word in words):
+            return []
+        return [{"path": root.name, "title": root.stem, "snippet": re.sub(r"\s+", " ", text)[:150]}]
     words = query.lower().split()
     pages = []
-    for path in root.rglob("*.html"):
+    row = database().get_source(key) or {}
+    source = Source(key, row.get("name", key), row.get("kind", "html"), root, row.get("include", []), row.get("exclude", []))
+    for path in files_for(source):
         rel = path.relative_to(root).as_posix()
         if words and not all(word in rel.lower() for word in words):
             continue

@@ -27,6 +27,16 @@ class Handler(SimpleHTTPRequestHandler):
         elif parsed.path == "/api/docs":
             import rag
             self.json_response({"docs": rag.docs_catalog()})
+        elif parsed.path == "/api/sources":
+            import rag
+            self.json_response({"sources": rag.docs_catalog()})
+        elif parsed.path.startswith("/api/sources/"):
+            import rag
+            key = urllib.parse.unquote(parsed.path.removeprefix("/api/sources/").split("/", 1)[0])
+            try:
+                self.json_response({"source": rag.source_details(key)})
+            except KeyError:
+                self.json_response({"error": "Unknown source"}, 404)
         elif parsed.path == "/api/docs/pages":
             import rag
             args = urllib.parse.parse_qs(parsed.query)
@@ -88,6 +98,27 @@ class Handler(SimpleHTTPRequestHandler):
             import rag
             queued = rag.start_all()
             self.json_response({"ok": True, "queued": queued}, 202)
+        elif self.path == "/api/sources":
+            import rag
+            try:
+                self.json_response({"source": rag.add_source(self.read_json())}, 201)
+            except (ValueError, OSError) as exc:
+                self.json_response({"error": str(exc)}, 400)
+        elif self.path.startswith("/api/sources/") and self.path.endswith("/index"):
+            import rag
+            key = urllib.parse.unquote(self.path.removeprefix("/api/sources/").removesuffix("/index").strip("/"))
+            try:
+                rag.start_index(key)
+                self.json_response({"ok": True}, 202)
+            except KeyError:
+                self.json_response({"error": "Unknown source"}, 404)
+        elif self.path.startswith("/api/sources/") and self.path.endswith("/cancel"):
+            import rag
+            key = urllib.parse.unquote(self.path.removeprefix("/api/sources/").removesuffix("/cancel").strip("/"))
+            try:
+                self.json_response({"ok": rag.cancel_index(key)}, 202)
+            except KeyError:
+                self.json_response({"error": "Unknown source"}, 404)
         elif self.path == "/api/rag/search":
             import rag
             try:
@@ -96,6 +127,18 @@ class Handler(SimpleHTTPRequestHandler):
                 self.json_response({"results": results})
             except (KeyError, RuntimeError, ValueError) as exc:
                 self.json_response({"error": str(exc)}, 400)
+        else:
+            self.send_error(404)
+
+    def do_DELETE(self):
+        if self.path.startswith("/api/sources/"):
+            import rag
+            key = urllib.parse.unquote(self.path.removeprefix("/api/sources/").strip("/"))
+            try:
+                rag.remove_source(key)
+                self.json_response({"ok": True})
+            except KeyError:
+                self.json_response({"error": "Unknown source"}, 404)
         else:
             self.send_error(404)
 
