@@ -152,6 +152,27 @@ def add_source(data):
     return source_details(source.id)
 
 
+def update_source(key, data):
+    current = database().get_source(key)
+    if current is None:
+        raise KeyError(key)
+    checked = create_source(
+        data.get("name", current["name"]), data.get("kind", current["kind"]),
+        data.get("path", current["path"]), data.get("include", current["include"]),
+        data.get("exclude", current["exclude"]),
+    )
+    try:
+        database().upsert_source(Source(
+            key, checked.name, checked.kind, checked.path,
+            checked.include, checked.exclude, data.get("home", current["home"]), current["state"],
+        ))
+    except Exception as exc:
+        if "UNIQUE constraint" in str(exc):
+            raise ValueError("That source path is already registered") from exc
+        raise
+    return source_details(key)
+
+
 def source_details(key):
     row = database().get_source(key)
     if row is None:
@@ -164,6 +185,9 @@ def source_details(key):
 
 
 def remove_source(key):
+    if database().get_source(key) is None:
+        raise KeyError(key)
+    store().delete_collection(collection(key))
     if not database().remove_source(key):
         raise KeyError(key)
     # Source files are deliberately never removed.

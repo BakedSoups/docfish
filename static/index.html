@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#171915">
   <title>Docfish</title>
-  <link rel="stylesheet" href="/styles.css?v=17">
+  <link rel="stylesheet" href="/styles.css?v=18">
 </head>
 <body>
   <aside class="docs-sidebar">
@@ -57,7 +57,7 @@
   </div>
   <section id="library-modal" class="library-modal" hidden>
     <div class="library-panel">
-      <header class="library-head"><div><p>DOCFISH LIBRARY</p><h2>Your sources</h2></div><div class="library-actions"><button id="add-source" class="index-all" type="button">Add source</button><button id="close-library" aria-label="Close library">×</button></div></header>
+      <header class="library-head"><div><p>DOCFISH LIBRARY</p><h2>Your sources</h2></div><div class="library-actions"><button id="open-learning" class="index-all" type="button">Notes & packs</button><button id="add-source" class="index-all" type="button">Add source</button><button id="close-library" aria-label="Close library">×</button></div></header>
       <form id="source-form" class="source-form" hidden>
         <label><span>Name</span><input id="source-name" required placeholder="My programming notes"></label>
         <label class="source-path"><span>Local file or folder path</span><input id="source-path" required placeholder="/home/me/Documents/notes"></label>
@@ -77,12 +77,18 @@
       </div>
     </div>
   </section>
+  <section id="learning-modal" class="library-modal" hidden>
+    <div class="learning-panel">
+      <header class="library-head"><div><p>LOCAL LEARNING</p><h2>Notes and optional packs</h2></div><button id="close-learning" aria-label="Close">×</button></header>
+      <div class="learning-library"><section><h3>Saved learning notes</h3><div id="notes-list"></div></section><section><h3>Optional content packs</h3><p class="muted-copy">Nothing is downloaded automatically. Review size and license before installing.</p><div id="packs-list"></div></section></div>
+    </div>
+  </section>
   <section id="doc-viewer" class="doc-viewer" hidden>
     <div class="viewer-bar"><span id="viewer-title">Documentation</span><a id="open-doc" target="_blank" rel="noopener">Open tab ↗</a><button id="close-viewer" aria-label="Close documentation">×</button></div>
     <iframe id="doc-frame" title="Documentation browser"></iframe>
   </section>
   <script src="/purify.min.js"></script>
   <script src="/marked.umd.js"></script>
-  <script src="/app.js?v=17"></script>
+  <script src="/app.js?v=18"></script>
 </body>
 </html>

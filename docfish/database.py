@@ -178,6 +178,7 @@ class Database:
         with self.transaction() as db:
             cursor = db.execute("DELETE FROM sources WHERE id=?", (source_id,))
             db.execute("DELETE FROM chunks_fts WHERE source_id=?", (source_id,))
+            db.execute("DELETE FROM vector_points WHERE collection_name IN (?, ?)", (f"angler_{source_id}", f"docfish_{source_id}"))
             return cursor.rowcount > 0
 
     def set_source_state(self, source_id: str, state: str, progress: int = 0, pages: int = 0, error: str = "") -> None:

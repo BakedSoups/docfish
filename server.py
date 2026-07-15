@@ -243,6 +243,19 @@ class Handler(SimpleHTTPRequestHandler):
         else:
             self.send_error(404)
 
+    def do_PATCH(self):
+        if self.path.startswith("/api/sources/"):
+            import rag
+            key = urllib.parse.unquote(self.path.removeprefix("/api/sources/").strip("/"))
+            try:
+                self.json_response({"source": rag.update_source(key, self.read_json())})
+            except KeyError:
+                self.json_response({"error": "Unknown source"}, 404)
+            except (ValueError, OSError) as exc:
+                self.json_response({"error": str(exc)}, 400)
+        else:
+            self.send_error(404)
+
     def read_json(self):
         return json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
 

@@ -35,6 +35,7 @@ async function loadModels() {
     statusEl.className = 'status error'; statusText.textContent = '';
   }
 }
+async function loadHealth(){try{const report=await fetch('/api/health').then(r=>r.json());const failed=Object.entries(report.checks||{}).filter(([,value])=>!value.ok).map(([name])=>name);statusEl.title=failed.length?`Needs attention: ${failed.join(', ')}`:'Local services ready';}catch{statusEl.title='Health check unavailable';}}
 
 function addMessage(role, content = '') {
   welcome.hidden = true; messagesEl.classList.add('active');
@@ -185,5 +186,10 @@ document.querySelector('#close-library').addEventListener('click',()=>document.q
 document.querySelector('#library-modal').addEventListener('click',e=>{ if (e.target.id==='library-modal') e.currentTarget.hidden=true; });
 ragDoc.addEventListener('change',()=>selectDoc(ragDoc.value));
 ragToggle.checked=(localStorage.getItem('docfish-rag') || localStorage.getItem('angler-rag'))==='true'; ragToggle.addEventListener('change',()=>localStorage.setItem('docfish-rag',ragToggle.checked));
+async function loadLearningLibrary(){const [notesData,packsData]=await Promise.all([fetch('/api/notes').then(r=>r.json()),fetch('/api/content-packs').then(r=>r.json())]);const notes=document.querySelector('#notes-list');notes.innerHTML='';for(const note of notesData.notes||[]){const item=document.createElement('article');item.className='learning-card';item.innerHTML=`<b>${note.question.slice(0,100)}</b><small>${note.created_at}</small><p>${note.answer.slice(0,240)}</p><a href="/api/notes/export?id=${note.id}&format=markdown" target="_blank">Export Markdown ↗</a><a href="/api/notes/export?id=${note.id}&format=json" target="_blank">Export JSON ↗</a>`;notes.append(item);}if(!notes.children.length)notes.innerHTML='<p class="muted-copy">No saved notes yet.</p>';const packs=document.querySelector('#packs-list');packs.innerHTML='';for(const pack of packsData.packs||[]){const item=document.createElement('article');item.className='learning-card';item.innerHTML=`<b>${pack.name} ${pack.version}</b><small>${formatBytes(pack.download_bytes)} download · about ${formatBytes(pack.installed_bytes_estimate)} installed</small><p>${pack.license}</p><a href="${pack.license_url}" target="_blank" rel="noopener">Review license ↗</a><button type="button">${pack.state==='installed'?'Uninstall':'Install pack'}</button>`;item.querySelector('button').addEventListener('click',async()=>{if(pack.state!=='installed'&&!confirm(`Download ${formatBytes(pack.download_bytes)} and install ${pack.name}?`))return;await fetch(`/api/content-packs/${encodeURIComponent(pack.id)}${pack.state==='installed'?'':'/install'}`,{method:pack.state==='installed'?'DELETE':'POST'});await loadLearningLibrary();await loadDocs();});packs.append(item);}}
+document.querySelector('#open-learning').addEventListener('click',async()=>{document.querySelector('#learning-modal').hidden=false;await loadLearningLibrary();});
+document.querySelector('#close-learning').addEventListener('click',()=>document.querySelector('#learning-modal').hidden=true);
+document.querySelector('#learning-modal').addEventListener('click',e=>{if(e.target.id==='learning-modal')e.currentTarget.hidden=true;});
 loadModels();
+loadHealth();
 loadDocs();
